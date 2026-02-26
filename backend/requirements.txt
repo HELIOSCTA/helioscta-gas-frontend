@@ -1,0 +1,30 @@
+# db
+psycopg2-binary==2.9.10
+pyodbc
+
+# python
+python-dotenv==1.0.1
+numpy
+pandas>=2.0.0
+pyarrow>=12.0.0
+pytz
+tabulate
+openpyxl>=3.1.0
+
+# api
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+
+# scraping
+requests
+beautifulsoup4
+lxml
+
+# azure
+azure-storage-blob>=12.19.0
+azure-core>=1.29.0
+msal
+
+# testing
+pytest>=7.0
+ipython

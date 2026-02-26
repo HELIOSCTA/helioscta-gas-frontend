@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "MultiEdit(*)",
+      "Grep(*)",
+      "Glob(*)",
+      "TodoRead(*)",
+      "TodoWrite(*)",
+      "mcp__8534f506-5cbf-4257-899b-67314d5ca556__notion-create-pages",
+      "mcp__8534f506-5cbf-4257-899b-67314d5ca556__notion-create-database",
+      "mcp__8534f506-5cbf-4257-899b-67314d5ca556__notion-move-pages",
+      "mcp__8534f506-5cbf-4257-899b-67314d5ca556__notion-update-page",
+      "Bash(python -c:*)",
+      "mcp__8534f506-5cbf-4257-899b-67314d5ca556__notion-update-data-source",
+      "WebFetch(domain:pipeline2.kindermorgan.com)",
+      "WebFetch(domain:www.naesb.org)"
+    ],
+    "deny": []
+  }
+}

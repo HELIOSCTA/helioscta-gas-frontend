@@ -1,0 +1,29 @@
+# Environment files (secrets)
+.env
+**/.env
+
+# Python build/dist directories
+dist/*
+
+# Python cache files
+__pycache__/
+**/__pycache__/*
+*.py[cod]
+*$py.class
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# logs
+**/logs/*
+*.log
+
+# claude
+.claude/worktrees/
+
+# misc files
+.archive/*
+.test/*
+*.pdf
+*.csv
+*.xlsx
