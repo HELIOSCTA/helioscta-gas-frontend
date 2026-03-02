@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from "recharts";
 
 /* ------------------------------------------------------------------ */
 /*  Types & constants                                                  */
@@ -471,6 +471,7 @@ export default function CashPricingMatrix() {
                 domain={["auto", "auto"]}
                 tickFormatter={(v: number) => v.toFixed(2)}
               />
+              <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1} />
               <Tooltip
                 contentStyle={{ backgroundColor: "#1f2937", border: "1px solid #374151", borderRadius: 6, fontSize: 12 }}
                 labelStyle={{ color: "#d1d5db", fontWeight: 600 }}
