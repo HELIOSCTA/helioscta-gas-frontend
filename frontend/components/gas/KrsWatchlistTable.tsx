@@ -11,7 +11,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { KRS_WATCHLIST } from "@/lib/watchlists";
+import type { Watchlist } from "@/lib/watchlists";
 
 /* ------------------------------------------------------------------ */
 /*  sessionStorage cache helpers                                       */
@@ -84,9 +84,7 @@ type SortDir = "asc" | "desc";
 
 const FETCH_LIMIT = 5000;
 const TABLE_PAGE_SIZE = 100;
-const DEFAULT_LOOKBACK = 14;
-const WATCHLIST_ROLE_IDS = KRS_WATCHLIST.locationRoleIds;
-const ROLE_IDS_PARAM = WATCHLIST_ROLE_IDS.join(",");
+const DEFAULT_LOOKBACK = 60;
 
 const CHART_SERIES = [
   { key: "scheduled", label: "Scheduled", color: "#f97316" },
@@ -96,6 +94,16 @@ const CHART_SERIES = [
 ] as const;
 
 const DEFAULT_VISIBLE_SERIES = new Set(["scheduled", "operational"]);
+
+/** Selectable metrics for the pivot summary table */
+const PIVOT_METRICS = [
+  { key: "scheduled_cap" as keyof NomRow, label: "Scheduled" },
+  { key: "signed_scheduled_cap" as keyof NomRow, label: "Signed Scheduled" },
+  { key: "operational_cap" as keyof NomRow, label: "Operational" },
+  { key: "available_cap" as keyof NomRow, label: "Available Cap" },
+  { key: "design_cap" as keyof NomRow, label: "Design Cap" },
+  { key: "no_notice_capacity" as keyof NomRow, label: "No Notice Cap" },
+] as const;
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -386,7 +394,13 @@ function MultiSelect({
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function KrsWatchlistTable() {
+interface WatchlistTableProps {
+  watchlist: Watchlist;
+}
+
+export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
+  const roleIdsParam = useMemo(() => watchlist.locationRoleIds.join(","), [watchlist]);
+
   /* --- lookback days --- */
   const [lookbackDays, setLookbackDays] = useState(DEFAULT_LOOKBACK);
 
@@ -405,7 +419,7 @@ export default function KrsWatchlistTable() {
 
   /* --- data state --- */
   const [rows, setRows] = useState<NomRow[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
+  const [, setTotalCount] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -418,6 +432,10 @@ export default function KrsWatchlistTable() {
   const [pivotOpen, setPivotOpen] = useState(true);
   const [chartsOpen, setChartsOpen] = useState(true);
   const [tableOpen, setTableOpen] = useState(true);
+
+  /* --- pivot metric selector --- */
+  const [pivotMetricKey, setPivotMetricKey] = useState<keyof NomRow>("signed_scheduled_cap");
+  const [pivotDisplay, setPivotDisplay] = useState<"values" | "dod">("values");
 
   /* --- chart series visibility --- */
   const [visibleSeries, setVisibleSeries] = useState<Set<string>>(
@@ -476,14 +494,81 @@ export default function KrsWatchlistTable() {
     return Array.from(groups.entries()).map(([roleId, { loc_name, points }]) => {
       const data = Array.from(points.entries())
         .map(([day, vals]) => ({ gas_day: day, ...vals }))
-        .sort((a, b) => a.gas_day.localeCompare(b.gas_day));
+        .sort((a, b) => b.gas_day.localeCompare(a.gas_day));
       return { roleId, loc_name, data };
     });
   }, [rows]);
 
-  /* --- fetch scoped filter options on mount (cached) --- */
+  /* --- pivot summary data: selected metric by (pipeline, tariff_zone, loc_name, role_id) × date --- */
+  const pivotData = useMemo(() => {
+    if (rows.length === 0) return { dates: [] as string[], weekGroups: [] as { label: string; span: number }[], pivotRows: [] as { pipeline_short_name: string; tariff_zone: string; loc_name: string; location_role_id: number; byDate: Map<string, number> }[] };
+
+    const dateSet = new Set<string>();
+    const groups = new Map<
+      string,
+      { pipeline_short_name: string; tariff_zone: string; loc_name: string; location_role_id: number; byDate: Map<string, number> }
+    >();
+
+    for (const row of rows) {
+      const day = row.gas_day?.slice(0, 10);
+      if (!day) continue;
+      dateSet.add(day);
+
+      const key = `${row.pipeline_short_name}|${row.tariff_zone}|${row.loc_name}|${row.location_role_id}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = {
+          pipeline_short_name: row.pipeline_short_name,
+          tariff_zone: row.tariff_zone,
+          loc_name: row.loc_name,
+          location_role_id: row.location_role_id,
+          byDate: new Map(),
+        };
+        groups.set(key, group);
+      }
+      const val = (row[pivotMetricKey] as number) ?? 0;
+      const existing = group.byDate.get(day) ?? 0;
+      group.byDate.set(day, existing + val);
+    }
+
+    // Dates newest-first
+    const dates = Array.from(dateSet).sort((a, b) => b.localeCompare(a));
+
+    // Group dates by week-ending-Friday for spanning headers
+    const weekGroups: { label: string; span: number }[] = [];
+    let currentFri = "";
+    for (const d of dates) {
+      const fri = getWeekFriday(d);
+      if (fri !== currentFri) {
+        const label = fmtPivotDate(fri);
+        weekGroups.push({ label, span: 1 });
+        currentFri = fri;
+      } else {
+        weekGroups[weekGroups.length - 1].span += 1;
+      }
+    }
+
+    // Sort rows by pipeline → tariff zone → loc name → role id
+    const pivotRows = Array.from(groups.values()).sort(
+      (a, b) =>
+        a.pipeline_short_name.localeCompare(b.pipeline_short_name) ||
+        a.tariff_zone.localeCompare(b.tariff_zone) ||
+        a.loc_name.localeCompare(b.loc_name) ||
+        a.location_role_id - b.location_role_id
+    );
+
+    return { dates, weekGroups, pivotRows };
+  }, [rows, pivotMetricKey]);
+
+  /* --- fetch scoped filter options when watchlist changes --- */
   useEffect(() => {
-    const cached = cacheGet<{ pipelines: string[]; loc_names: string[]; role_ids: string[] }>("base-filters");
+    // Reset selections when watchlist changes
+    setSelectedPipelines([]);
+    setSelectedLocNames([]);
+    setSelectedRoleIds([]);
+
+    const cacheKey = `base-filters:${roleIdsParam}`;
+    const cached = cacheGet<{ pipelines: string[]; loc_names: string[]; role_ids: string[] }>(cacheKey);
     if (cached) {
       setAllPipelines(cached.pipelines);
       setAllLocNames(cached.loc_names);
@@ -492,7 +577,7 @@ export default function KrsWatchlistTable() {
     }
 
     setFilterLoading(true);
-    fetch(`/api/genscape-noms/filters?locationRoleIds=${ROLE_IDS_PARAM}`)
+    fetch(`/api/genscape-noms/filters?locationRoleIds=${roleIdsParam}`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -504,18 +589,18 @@ export default function KrsWatchlistTable() {
         setAllPipelines(pipelines);
         setAllLocNames(loc_names);
         setAllRoleIds(role_ids);
-        cacheSet("base-filters", { pipelines, loc_names, role_ids });
+        cacheSet(cacheKey, { pipelines, loc_names, role_ids });
       })
       .catch(() => {})
       .finally(() => setFilterLoading(false));
-  }, []);
+  }, [roleIdsParam]);
 
   /* --- refine filter options when pipeline or loc_name selection changes --- */
   useEffect(() => {
     // No refinement needed if nothing selected
     if (selectedPipelines.length === 0 && selectedLocNames.length === 0) return;
 
-    const params = new URLSearchParams({ locationRoleIds: ROLE_IDS_PARAM });
+    const params = new URLSearchParams({ locationRoleIds: roleIdsParam });
     if (selectedPipelines.length > 0) params.set("pipelines", selectedPipelines.join(","));
     if (selectedLocNames.length > 0) params.set("locNames", selectedLocNames.join(","));
 
@@ -550,23 +635,24 @@ export default function KrsWatchlistTable() {
       })
       .catch(() => {})
       .finally(() => setFilterLoading(false));
-  }, [selectedPipelines, selectedLocNames]);
+  }, [selectedPipelines, selectedLocNames, roleIdsParam]);
 
   /* --- build the effective role IDs for data fetch --- */
   const effectiveRoleIds = useMemo(() => {
     if (selectedRoleIds.length > 0) return selectedRoleIds.join(",");
-    return ROLE_IDS_PARAM;
-  }, [selectedRoleIds]);
+    return roleIdsParam;
+  }, [selectedRoleIds, roleIdsParam]);
 
-  /* --- fetch data (auto-load on mount, re-fetch on filter/date/offset changes) --- */
+  /* --- fetch ALL data (no server-side pagination; client-side page for table) --- */
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setOffset(0);
 
     const params = new URLSearchParams({
-      limit: String(PAGE_SIZE),
-      offset: String(offset),
+      limit: String(FETCH_LIMIT),
+      offset: "0",
       locationRoleId: effectiveRoleIds,
     });
     if (startDate) params.set("start", startDate);
@@ -590,7 +676,7 @@ export default function KrsWatchlistTable() {
       .finally(() => setLoading(false));
 
     return () => controller.abort();
-  }, [startDate, endDate, effectiveRoleIds, selectedPipelines, selectedLocNames, offset]);
+  }, [startDate, endDate, effectiveRoleIds, selectedPipelines, selectedLocNames]);
 
   /* --- lookback change --- */
   const handleLookbackChange = useCallback((days: number) => {
@@ -623,12 +709,13 @@ export default function KrsWatchlistTable() {
     return sortDir === "asc" ? cmp : -cmp;
   });
 
-  /* --- pagination --- */
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-  const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
+  /* --- client-side pagination over all fetched rows --- */
+  const totalPages = Math.ceil(rows.length / TABLE_PAGE_SIZE);
+  const currentPage = Math.floor(offset / TABLE_PAGE_SIZE) + 1;
+  const displayRows = sortedRows.slice(offset, offset + TABLE_PAGE_SIZE);
 
   const goToPage = useCallback((page: number) => {
-    setOffset((page - 1) * PAGE_SIZE);
+    setOffset((page - 1) * TABLE_PAGE_SIZE);
   }, []);
 
   /* --- sort indicator --- */
@@ -759,6 +846,155 @@ export default function KrsWatchlistTable() {
         </div>
       )}
 
+      {/* ---------- Pivot Summary ---------- */}
+      {!loading && !error && pivotData.pivotRows.length > 0 && (
+        <div className="rounded-xl border border-gray-800 bg-[#12141d]">
+          <button
+            onClick={() => setPivotOpen((o) => !o)}
+            className="flex w-full items-center justify-between px-4 py-3 text-left"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-gray-300">Summary</span>
+              <span className="text-xs text-gray-500">
+                {pivotData.pivotRows.length} location{pivotData.pivotRows.length !== 1 ? "s" : ""} &times; {pivotData.dates.length} day{pivotData.dates.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <span className="text-gray-500 text-sm">{pivotOpen ? "v" : ">"}</span>
+          </button>
+
+          {pivotOpen && (
+            <div className="border-t border-gray-800">
+              {/* Metric selector */}
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-800">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Metric</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {PIVOT_METRICS.map((m) => (
+                    <button
+                      key={m.key}
+                      onClick={() => setPivotMetricKey(m.key)}
+                      className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                        pivotMetricKey === m.key
+                          ? "bg-gray-700 text-white"
+                          : "border border-gray-800 text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Display mode selector */}
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-800">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Display</span>
+                <div className="flex gap-1.5">
+                  {([["values", "Daily Values"], ["dod", "DoD Changes"]] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => setPivotDisplay(key)}
+                      className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                        pivotDisplay === key
+                          ? "bg-gray-700 text-white"
+                          : "border border-gray-800 text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse" style={{ minWidth: `${400 + pivotData.dates.length * 88}px` }}>
+                {/* Week-group header row */}
+                <thead>
+                  <tr>
+                    <th colSpan={4} className="sticky left-0 z-10 bg-[#12141d] border-b border-r border-gray-700" />
+                    {pivotData.weekGroups.map((wg, i) => (
+                      <th
+                        key={i}
+                        colSpan={wg.span}
+                        className="px-1 py-1.5 text-center text-[10px] font-bold text-gray-400 border-b border-gray-700 whitespace-nowrap"
+                      >
+                        {wg.label}
+                      </th>
+                    ))}
+                  </tr>
+                  {/* Individual date header row */}
+                  <tr>
+                    <th className="sticky left-0 z-10 bg-[#12141d] px-2 py-1.5 text-left text-[10px] font-bold text-gray-500 border-b border-r border-gray-700 whitespace-nowrap">Pipeline</th>
+                    <th className="sticky left-[80px] z-10 bg-[#12141d] px-2 py-1.5 text-left text-[10px] font-bold text-gray-500 border-b border-r border-gray-700 whitespace-nowrap">Tariff Zone</th>
+                    <th className="sticky left-[170px] z-10 bg-[#12141d] px-2 py-1.5 text-left text-[10px] font-bold text-gray-500 border-b border-r border-gray-700 whitespace-nowrap">Loc Name</th>
+                    <th className="sticky left-[330px] z-10 bg-[#12141d] px-2 py-1.5 text-right text-[10px] font-bold text-gray-500 border-b border-r border-gray-700 whitespace-nowrap">Role ID</th>
+                    {pivotData.dates.map((d) => (
+                      <th
+                        key={d}
+                        className="px-1 py-1.5 text-right text-[10px] font-medium text-gray-500 border-b border-gray-700 whitespace-nowrap"
+                      >
+                        {fmtPivotDate(d)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pivotData.pivotRows.map((pr) => {
+                    const vals = pivotData.dates.map((d) => pr.byDate.get(d) ?? 0);
+
+                    if (pivotDisplay === "values") {
+                      const rowMin = Math.min(...vals);
+                      const rowMax = Math.max(...vals);
+                      return (
+                        <tr key={`${pr.pipeline_short_name}-${pr.location_role_id}`} className="hover:bg-gray-800/30">
+                          <td className="sticky left-0 z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap">{pr.pipeline_short_name}</td>
+                          <td className="sticky left-[80px] z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap truncate max-w-[90px]">{pr.tariff_zone || "--"}</td>
+                          <td className="sticky left-[170px] z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap truncate max-w-[160px]" title={pr.loc_name}>{pr.loc_name}</td>
+                          <td className="sticky left-[330px] z-10 bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono">{pr.location_role_id}</td>
+                          {vals.map((v, i) => (
+                            <td
+                              key={pivotData.dates[i]}
+                              className="px-1 py-1 text-right text-gray-200 whitespace-nowrap font-mono border-r border-gray-800/30"
+                              style={{ backgroundColor: heatBg(v, rowMin, rowMax) }}
+                            >
+                              {fmtNum(v)}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    }
+
+                    // DoD mode
+                    const dods = vals.map((v, i) =>
+                      i < vals.length - 1 ? v - vals[i + 1] : null
+                    );
+                    const dodVals = dods.filter((v): v is number => v !== null);
+                    const dodMin = dodVals.length > 0 ? Math.min(...dodVals) : 0;
+                    const dodMax = dodVals.length > 0 ? Math.max(...dodVals) : 0;
+                    return (
+                      <tr key={`${pr.pipeline_short_name}-${pr.location_role_id}`} className="hover:bg-gray-800/30">
+                        <td className="sticky left-0 z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap">{pr.pipeline_short_name}</td>
+                        <td className="sticky left-[80px] z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap truncate max-w-[90px]">{pr.tariff_zone || "--"}</td>
+                        <td className="sticky left-[170px] z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap truncate max-w-[160px]" title={pr.loc_name}>{pr.loc_name}</td>
+                        <td className="sticky left-[330px] z-10 bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono">{pr.location_role_id}</td>
+                        {dods.map((d, i) => (
+                          <td
+                            key={pivotData.dates[i]}
+                            className="px-1 py-1 text-right whitespace-nowrap font-mono border-r border-gray-800/30"
+                            style={{ backgroundColor: d !== null ? heatBg(d, dodMin, dodMax) : "transparent" }}
+                          >
+                            <span className={d !== null ? (d > 0 ? "text-green-400" : d < 0 ? "text-red-400" : "text-gray-500") : "text-gray-600"}>
+                              {d !== null ? (d > 0 ? "+" : "") + fmtNum(d) : "--"}
+                            </span>
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ---------- Charts ---------- */}
       {!loading && !error && chartDataByRoleId.length > 0 && (
         <div className="rounded-xl border border-gray-800 bg-[#12141d]">
@@ -821,11 +1057,13 @@ export default function KrsWatchlistTable() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                       <XAxis
                         dataKey="gas_day"
+                        reversed
                         tickFormatter={fmtDateShort}
                         tick={{ fill: "#6b7280", fontSize: 11 }}
                         stroke="#374151"
                       />
                       <YAxis
+                        domain={["auto", "auto"]}
                         tickFormatter={(v: number) => v.toLocaleString()}
                         tick={{ fill: "#6b7280", fontSize: 11 }}
                         stroke="#374151"
@@ -873,7 +1111,7 @@ export default function KrsWatchlistTable() {
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-gray-300">Data Table</span>
               <span className="text-xs text-gray-500">
-                {totalCount.toLocaleString()} rows | Page {currentPage} of {totalPages || 1}
+                {rows.length.toLocaleString()} rows | Page {currentPage} of {totalPages || 1}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -940,7 +1178,7 @@ export default function KrsWatchlistTable() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedRows.length === 0 ? (
+                    {displayRows.length === 0 ? (
                       <tr>
                         <td
                           colSpan={visibleColumns.length}
@@ -950,7 +1188,7 @@ export default function KrsWatchlistTable() {
                         </td>
                       </tr>
                     ) : (
-                      sortedRows.map((row, idx) => (
+                      displayRows.map((row, idx) => (
                         <tr
                           key={`${row.location_role_id}-${row.gas_day}-${row.cycle_code}-${idx}`}
                           className={`border-b border-gray-800/50 hover:bg-gray-800/30 ${
