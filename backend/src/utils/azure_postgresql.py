@@ -44,24 +44,22 @@ def _connect_to_azure_postgressql(
 def pull_from_db(
         query: str,
         database: str = settings.AZURE_POSTGRESQL_DB_NAME,
+        params: dict = None,
     ) -> pd.DataFrame:
 
-    try: 
+    try:
         # Create a database connection
         connection = _connect_to_azure_postgressql(database=database)
-        
+
         # Execute the query and fetch the data
-        # logging.info(query)
-        df = pd.read_sql(query, connection)
-        # logging.info(f"Pulled {len(df):,} rows ...")
+        df = pd.read_sql(query, connection, params=params)
 
         # close connection
         connection.close()
-    
+
         return df
 
     except Exception as e:
-        # logging.info(e)
         logging.info(e)
         return None
 

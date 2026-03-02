@@ -17,7 +17,8 @@
       "Bash(python -c:*)",
       "mcp__8534f506-5cbf-4257-899b-67314d5ca556__notion-update-data-source",
       "WebFetch(domain:pipeline2.kindermorgan.com)",
-      "WebFetch(domain:www.naesb.org)"
+      "WebFetch(domain:www.naesb.org)",
+      "mcp__postgres__query"
     ],
     "deny": []
   }

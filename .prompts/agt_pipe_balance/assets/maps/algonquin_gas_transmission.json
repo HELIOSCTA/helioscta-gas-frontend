@@ -1,0 +1,40 @@
+{
+  "pipeline": {
+    "name": "Algonquin Gas Transmission",
+    "rextagCode": "ALGONPL",
+    "owner": "Enbridge, Inc.",
+    "operator": "Algonquin Gas Transmission, LLC",
+    "milesOfPipeline": 1131,
+    "systemCapacityBcfPerDay": 3.09,
+    "compressorStations": 8,
+    "seasonalStorage": 0,
+    "states": ["New Jersey", "New York", "Connecticut", "Rhode Island", "Massachusetts"],
+    "description": "Algonquin Gas Transmission, LLC, a subsidiary of Enbridge, Inc., manages a 1,131-mile pipeline across New England, extending from Pennsylvania to Massachusetts. Operating near full capacity, especially during winter, it serves the utility and midstream sectors with clients such as Boston Gas, Kleen Energy, and Excelerate New England."
+  },
+  "dataDate": "2026-02-05",
+  "receiptPoints": [
+    { "point": "Tenn Gas - Mahwah", "mdthPerDay": 1132.67 },
+    { "point": "Millenium - Ramapo", "mdthPerDay": 906.44 },
+    { "point": "Maritimes NE - Essex Co", "mdthPerDay": 399.89 },
+    { "point": "Iroquois - Brookfield (Rec)", "mdthPerDay": 273.24 },
+    { "point": "Tetco - Lambertville", "mdthPerDay": 257.70 },
+    { "point": "Tenn Gas - Mendon", "mdthPerDay": 219.07 },
+    { "point": "Transco - Centerville", "mdthPerDay": 206.00 },
+    { "point": "Tetco - Hanover", "mdthPerDay": 149.65 },
+    { "point": "Columbia Gas - Hanover", "mdthPerDay": 42.90 },
+    { "point": "Lincoln - Middlesex MA", "mdthPerDay": 0.00 }
+  ],
+  "deliveryPoints": [
+    { "point": "AGT - Hanover", "mdthPerDay": 751.54 },
+    { "point": "Iroquois - Brookfield (Del)", "mdthPerDay": 441.63 },
+    { "point": "NationalGrid - Ponkapoag", "mdthPerDay": 163.78 },
+    { "point": "ANP Bellingham", "mdthPerDay": 152.96 },
+    { "point": "PG&E Lake Rd.", "mdthPerDay": 133.54 },
+    { "point": "Constellation - Mystic", "mdthPerDay": 124.75 },
+    { "point": "Southern Conn. GC - North Haven", "mdthPerDay": 103.71 },
+    { "point": "CPV Towantic - N. London", "mdthPerDay": 88.29 },
+    { "point": "Kleen Energy - Middlesex", "mdthPerDay": 86.84 },
+    { "point": "Fore River Development", "mdthPerDay": 63.35 }
+  ],
+  "source": "https://rextag.com/pages/algonquin-gas-transmission"
+}

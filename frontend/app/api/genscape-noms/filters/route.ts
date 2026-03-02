@@ -16,9 +16,71 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const pipelinesParam = searchParams.get("pipelines"); // comma-separated
   const locNamesParam = searchParams.get("locNames");   // comma-separated
+  const locationRoleIdsParam = searchParams.get("locationRoleIds"); // comma-separated
 
   try {
     const result: Record<string, unknown> = {};
+
+    // --- Watchlist mode: scoped to a set of location_role_ids ---
+    if (locationRoleIdsParam) {
+      const roleIdList = locationRoleIdsParam.split(",").map(Number).filter(Number.isFinite);
+      if (roleIdList.length === 0) {
+        return NextResponse.json({ pipelines: [], loc_names: [], location_role_ids: [] });
+      }
+
+      const params: Record<string, unknown> = {};
+      const rPlaceholders = roleIdList.map((id, i) => {
+        params[`r${i}`] = id;
+        return `@r${i}`;
+      });
+      const roleInClause = rPlaceholders.join(", ");
+
+      // Optionally combine with pipelines and locNames for further narrowing
+      let extraWhere = "";
+      if (pipelinesParam) {
+        const pipelineList = pipelinesParam.split(",").filter(Boolean);
+        const pPlaceholders = pipelineList.map((p, i) => {
+          params[`p${i}`] = p;
+          return `@p${i}`;
+        });
+        extraWhere += ` AND pipeline_short_name IN (${pPlaceholders.join(", ")})`;
+      }
+      if (locNamesParam) {
+        const locNameList = locNamesParam.split(",").filter(Boolean);
+        const lPlaceholders = locNameList.map((l, i) => {
+          params[`l${i}`] = l;
+          return `@l${i}`;
+        });
+        extraWhere += ` AND loc_name IN (${lPlaceholders.join(", ")})`;
+      }
+
+      const baseWhere = `WHERE location_role_id IN (${roleInClause})${extraWhere}`;
+
+      const [pipelineRows, locNameRows, roleIdRows] = await Promise.all([
+        mssqlQuery<{ pipeline_short_name: string }>(
+          `SELECT DISTINCT pipeline_short_name FROM ${TABLE} ${baseWhere} ORDER BY pipeline_short_name`,
+          params
+        ),
+        mssqlQuery<{ loc_name: string }>(
+          `SELECT DISTINCT loc_name FROM ${TABLE} ${baseWhere} ORDER BY loc_name`,
+          params
+        ),
+        mssqlQuery<{ location_role_id: number }>(
+          `SELECT DISTINCT location_role_id FROM ${TABLE} ${baseWhere} ORDER BY location_role_id`,
+          params
+        ),
+      ]);
+
+      result.pipelines = pipelineRows.map((r) => r.pipeline_short_name).filter(Boolean);
+      result.loc_names = locNameRows.map((r) => r.loc_name).filter(Boolean);
+      result.location_role_ids = roleIdRows.map((r) => r.location_role_id).filter((v) => v != null);
+
+      return NextResponse.json(result, {
+        headers: {
+          "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=300",
+        },
+      });
+    }
 
     if (!pipelinesParam) {
       // Base call: just pipeline list (no date range query needed)

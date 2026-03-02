@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__postgres__query",
+      "Bash(xargs grep:*)",
+      "Bash(PGPASSWORD='admin!2024' psql:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(node:*)",
+      "Bash(source:*)"
+    ]
+  }
+}

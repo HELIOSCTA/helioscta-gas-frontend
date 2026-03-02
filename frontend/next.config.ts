@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pg", "mssql", "tedious"],
+  serverExternalPackages: ["pg", "mssql", "tedious", "@azure/storage-blob"],
   outputFileTracingRoot: configDir,
 };
 

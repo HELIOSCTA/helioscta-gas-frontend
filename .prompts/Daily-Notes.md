@@ -1,10 +1,15 @@
-### 
+# Feb
+
+## (2026-02-26) Thurs Feb 26th
+
+### Deploying-Vercel
 
 I want to refector this repo to have a frontend and backend. This repo will be refactored based on @C:\Users\AidanKeaveny\Documents\github\helioscta-pjm-da\ with a docker container to run both frontend and backend. I want this repo to be called helioscta-gas-frontend.
 - Teammate 1: Will inpsect the source repo and implemment a plan to refactor this repo. They will document this implementation plan in .skills\refactor.md
 - Teamate 2: Will implement a new database utils for Azure SQL. In my front I want a section and page for historical Genscape Noms. Document this in @.skills\genscape-noms\historicals.md
 - Teamate 3: Will implement a plan to deploy this repo to vercel.
 
+## (2026-02-25) Wed Feb 25th
 
 ### Pipeline EBBS
 

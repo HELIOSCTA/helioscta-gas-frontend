@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGT Daily Changes Report - February 27, 2026</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #181a20;
+    --border: #2a2d35;
+    --text: #e4e4e7;
+    --muted: #71717a;
+    --accent: #3b82f6;
+    --green: #22c55e;
+    --red: #ef4444;
+    --orange: #f59e0b;
+    --cyan: #06b6d4;
+    --purple: #8b5cf6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 24px;
+    max-width: 1500px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 28px; margin-bottom: 4px; }
+  h2 { font-size: 20px; margin: 32px 0 16px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 16px; margin: 20px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px; }
+  .grid-5 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 14px; }
+  .metric-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+  .metric-card .value { font-size: 26px; font-weight: 700; }
+  .metric-card .label { font-size: 11px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .metric-card .sublabel { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .metric-card .delta { font-size: 14px; margin-top: 6px; font-weight: 600; }
+  .metric-card .subdelta { font-size: 11px; margin-top: 2px; }
+  .up { color: var(--green); }
+  .down { color: var(--red); }
+  .neutral { color: var(--orange); }
+  .flat { color: var(--muted); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    padding: 7px 10px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+  td:first-child, th:first-child { text-align: left; }
+  tr:hover { background: rgba(59, 130, 246, 0.05); }
+  tr.highlight-row { background: rgba(59, 130, 246, 0.08); font-weight: 600; }
+  .chart-container { position: relative; height: 300px; margin: 16px 0; }
+  .chart-container-tall { position: relative; height: 380px; margin: 16px 0; }
+  .commentary { color: #a1a1aa; font-size: 14px; line-height: 1.7; margin: 12px 0; }
+  .commentary strong { color: var(--text); }
+  .highlight-box {
+    background: rgba(59, 130, 246, 0.08);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 14px;
+  }
+  .signal-bullish { border-left-color: var(--green); background: rgba(34, 197, 94, 0.08); }
+  .signal-bearish { border-left-color: var(--red); background: rgba(239, 68, 68, 0.08); }
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .tag-loose { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+  .tag-tight { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+  .tag-neutral { background: rgba(245, 158, 11, 0.15); color: var(--orange); }
+  .tag-big { font-size: 13px; padding: 3px 12px; }
+  .delta-cell { font-weight: 600; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 12px; }
+  .pct-cell { font-size: 11px; color: var(--muted); }
+  .section-divider { border-top: 2px solid var(--accent); margin-top: 40px; padding-top: 8px; }
+  .mini-table { font-size: 12px; }
+  .mini-table th { font-size: 10px; }
+  .mini-table td, .mini-table th { padding: 5px 8px; }
+  .footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+  @media print {
+    body { background: white; color: #1a1a1a; }
+    .card { border-color: #ddd; }
+    h2 { color: #1a1a1a; }
+  }
+</style>
+</head>
+<body>
+
+<h1>AGT Daily Changes Report</h1>
+<div class="subtitle">Algonquin Gas Transmission | Gas Day: February 27, 2026 | Trade Date: February 26, 2026 | <strong>Focus: Day-Over-Day Deltas</strong></div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 1: KEY DAILY CHANGES AT A GLANCE          -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2>Day-Over-Day Change Summary</h2>
+
+<div class="grid-5">
+  <div class="metric-card">
+    <div class="value down">-$1.91</div>
+    <div class="label">AGT Cash DoD</div>
+    <div class="sublabel">$6.13 → $4.22</div>
+    <div class="delta down">-31.2%</div>
+  </div>
+  <div class="metric-card">
+    <div class="value down">-$3.31</div>
+    <div class="label">AGT Balmo DoD</div>
+    <div class="sublabel">$7.68 → $4.37</div>
+    <div class="delta down">-43.1%</div>
+  </div>
+  <div class="metric-card">
+    <div class="value up">+$1.40</div>
+    <div class="label">AGT Cash-Balmo DoD</div>
+    <div class="sublabel">-$1.55 → -$0.15</div>
+    <div class="delta neutral">Converging</div>
+  </div>
+  <div class="metric-card">
+    <div class="value down">-$1.83</div>
+    <div class="label">AGT Basis DoD</div>
+    <div class="sublabel">$3.12 → $1.29</div>
+    <div class="delta down">-58.7%</div>
+  </div>
+  <div class="metric-card">
+    <div class="value down">-183 MDth</div>
+    <div class="label">Stony Pt DoD</div>
+    <div class="sublabel">1.821 → 1.637 BCF</div>
+    <div class="delta down">-10.0%</div>
+  </div>
+</div>
+
+<div class="grid-5" style="margin-top: 12px;">
+  <div class="metric-card">
+    <div class="value down">-$1.78</div>
+    <div class="label">Iroq Z2 Cash DoD</div>
+    <div class="sublabel">$5.36 → $3.58</div>
+    <div class="delta down">-33.2%</div>
+  </div>
+  <div class="metric-card">
+    <div class="value down">-$3.75</div>
+    <div class="label">Iroq Z2 Balmo DoD</div>
+    <div class="sublabel">$7.86 → $4.11</div>
+    <div class="delta down">-47.7%</div>
+  </div>
+  <div class="metric-card">
+    <div class="value down">-$1.70</div>
+    <div class="label">Iroq Z2 Basis DoD</div>
+    <div class="sublabel">$2.35 → $0.65</div>
+    <div class="delta down">-72.3%</div>
+  </div>
+  <div class="metric-card">
+    <div class="value down">-$0.26</div>
+    <div class="label">TETCO M3 Basis DoD</div>
+    <div class="sublabel">-$0.08 → -$0.34</div>
+    <div class="delta down">Deeper Discount</div>
+  </div>
+  <div class="metric-card">
+    <div class="value flat">-$0.08</div>
+    <div class="label">HH Cash DoD</div>
+    <div class="sublabel">$3.01 → $2.93</div>
+    <div class="delta flat">-2.7% (Flat)</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 2: PRICING DAY-OVER-DAY DETAIL            -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2 class="section-divider">Cash & Balmo Price Changes (Trade Date 2/26 vs 2/25)</h2>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Cash Prices — Daily Change</h3>
+    <div class="chart-container">
+      <canvas id="cashDodChart"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Balmo Prices — Daily Change</h3>
+    <div class="chart-container">
+      <canvas id="balmoDodChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Full Pricing Change Table — Trade Date 2/26 vs 2/25</h3>
+  <table>
+    <tr>
+      <th style="text-align:left">Location</th>
+      <th>Cash (2/26)</th>
+      <th>Cash (2/25)</th>
+      <th>Cash Δ</th>
+      <th>Cash Δ%</th>
+      <th>Balmo (2/26)</th>
+      <th>Balmo (2/25)</th>
+      <th>Balmo Δ</th>
+      <th>Balmo Δ%</th>
+    </tr>
+    <tr class="highlight-row">
+      <td>AGT</td>
+      <td>$4.22</td><td>$6.13</td>
+      <td class="delta-cell down">-$1.91</td><td class="pct-cell">-31.2%</td>
+      <td>$4.37</td><td>$7.68</td>
+      <td class="delta-cell down">-$3.31</td><td class="pct-cell">-43.1%</td>
+    </tr>
+    <tr>
+      <td>Iroquois Z2</td>
+      <td>$3.58</td><td>$5.36</td>
+      <td class="delta-cell down">-$1.78</td><td class="pct-cell">-33.2%</td>
+      <td>$4.11</td><td>$7.86</td>
+      <td class="delta-cell down">-$3.75</td><td class="pct-cell">-47.7%</td>
+    </tr>
+    <tr>
+      <td>Transco Z5S</td>
+      <td>—</td><td>—</td>
+      <td class="delta-cell flat">—</td><td class="pct-cell">—</td>
+      <td>—</td><td>—</td>
+      <td class="delta-cell flat">—</td><td class="pct-cell">—</td>
+    </tr>
+    <tr>
+      <td>TETCO M3</td>
+      <td>$2.60</td><td>$2.93</td>
+      <td class="delta-cell down">-$0.33</td><td class="pct-cell">-11.3%</td>
+      <td>—</td><td>—</td>
+      <td class="delta-cell flat">—</td><td class="pct-cell">—</td>
+    </tr>
+    <tr>
+      <td>Henry Hub</td>
+      <td>$2.93</td><td>$3.01</td>
+      <td class="delta-cell flat">-$0.08</td><td class="pct-cell">-2.7%</td>
+      <td>$2.84</td><td>$3.00</td>
+      <td class="delta-cell flat">-$0.16</td><td class="pct-cell">-5.3%</td>
+    </tr>
+  </table>
+  <div class="commentary">
+    <strong>AGT balmo fell harder than cash (-$3.31 vs -$1.91).</strong> The forward month is repricing faster than spot, pulling the cash-balmo spread from -$1.55 to just -$0.15. End-of-month convergence is typical, but the magnitude of the balmo collapse (-43%) reflects the market unwinding the extreme Feb premium. Iroquois Z2 balmo fell even harder (-47.7%), consistent with regional NE demand softening.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 3: BASIS & SPREAD ANALYSIS                -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2>Basis & Spread Changes</h2>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Basis vs HH — Daily Change</h3>
+    <div class="chart-container">
+      <canvas id="basisDodChart"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Cash-Balmo Spread — Daily Change</h3>
+    <div class="chart-container">
+      <canvas id="cashBalmoDodChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Spread Detail Table — Trade Date 2/26 vs 2/25</h3>
+  <table>
+    <tr>
+      <th style="text-align:left">Spread</th>
+      <th>2/26</th>
+      <th>2/25</th>
+      <th>Δ</th>
+      <th>Direction</th>
+      <th>Signal</th>
+    </tr>
+    <tr class="highlight-row">
+      <td>AGT Basis (vs HH)</td>
+      <td>$1.29</td><td>$3.12</td>
+      <td class="delta-cell down">-$1.83</td>
+      <td class="down">Compressing</td>
+      <td><span class="tag tag-loose">Bearish</span></td>
+    </tr>
+    <tr>
+      <td>AGT Cash-Balmo</td>
+      <td>-$0.15</td><td>-$1.55</td>
+      <td class="delta-cell up">+$1.40</td>
+      <td class="up">Converging</td>
+      <td><span class="tag tag-neutral">End-of-month</span></td>
+    </tr>
+    <tr>
+      <td>Iroq Z2 Basis (vs HH)</td>
+      <td>$0.65</td><td>$2.35</td>
+      <td class="delta-cell down">-$1.70</td>
+      <td class="down">Collapsing</td>
+      <td><span class="tag tag-loose">Bearish</span></td>
+    </tr>
+    <tr>
+      <td>Iroq Z2 Cash-Balmo</td>
+      <td>-$0.52</td><td>-$2.50</td>
+      <td class="delta-cell up">+$1.98</td>
+      <td class="up">Converging</td>
+      <td><span class="tag tag-neutral">End-of-month</span></td>
+    </tr>
+    <tr>
+      <td>TETCO M3 Basis (vs HH)</td>
+      <td>-$0.34</td><td>-$0.08</td>
+      <td class="delta-cell down">-$0.26</td>
+      <td class="down">Widening Discount</td>
+      <td><span class="tag tag-loose">Oversupplied</span></td>
+    </tr>
+    <tr>
+      <td>AGT-Iroq Z2 Spread</td>
+      <td>$0.64</td><td>$0.77</td>
+      <td class="delta-cell flat">-$0.13</td>
+      <td class="flat">Narrowing</td>
+      <td><span class="tag tag-neutral">Converging</span></td>
+    </tr>
+    <tr>
+      <td>AGT-TETCO M3 Spread</td>
+      <td>$1.62</td><td>$3.20</td>
+      <td class="delta-cell down">-$1.58</td>
+      <td class="down">Compressing</td>
+      <td><span class="tag tag-loose">Less premium</span></td>
+    </tr>
+    <tr>
+      <td>HH Cash-Balmo</td>
+      <td>$0.09</td><td>$0.01</td>
+      <td class="delta-cell flat">+$0.08</td>
+      <td class="flat">Flat</td>
+      <td><span class="tag tag-neutral">Stable</span></td>
+    </tr>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 4: TRAILING WEEK PRICING WITH DELTAS      -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2>Trailing Week — Pricing with Daily Deltas</h2>
+
+<div class="card" style="overflow-x: auto;">
+  <h3>AGT, Iroquois Z2, TETCO M3, Henry Hub — Cash, Balmo, Basis, & DoD Changes</h3>
+  <table class="mini-table" id="trailingPriceTable"></table>
+</div>
+
+<div class="card">
+  <div class="chart-container-tall">
+    <canvas id="trailingDeltaChart"></canvas>
+  </div>
+  <div class="commentary">
+    The trailing week shows a relentless daily decline in AGT cash: <strong>$9.81 → $6.19 → $6.13 → $4.22</strong> (-57% cumulative over 3 trading days). Each day's delta got progressively steeper in dollar terms (-$3.62, -$0.06, -$1.91). The <strong>2/23 spike stands out</strong> as cash traded $2.06 ABOVE balmo — the only positive cash-balmo spread in the trailing week — driven by a cold snap. Every subsequent day has seen cash below balmo and the gap narrowing toward zero.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 5: NOMINATION DAILY CHANGES               -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2 class="section-divider">Nomination Daily Changes (Gas Day 2/27 vs 2/26)</h2>
+
+<div class="grid-3">
+  <div class="metric-card">
+    <div class="value down">-183 MDth</div>
+    <div class="label">Stony Point Δ</div>
+    <div class="sublabel">1.821 → 1.637 BCF (-10.0%)</div>
+    <div class="delta down">Lowest in trailing 7d</div>
+  </div>
+  <div class="metric-card">
+    <div class="value down">-88 MDth</div>
+    <div class="label">Burrillville Δ</div>
+    <div class="sublabel">0.809 → 0.721 BCF (-10.9%)</div>
+    <div class="delta down">Lowest in trailing 7d</div>
+  </div>
+  <div class="metric-card">
+    <div class="value up">+96 MDth</div>
+    <div class="label">Net Take Away Δ</div>
+    <div class="sublabel">-1.012 → -0.917 BCF</div>
+    <div class="delta up">Less demand pull</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Zone-Level Nomination Changes (2/27 vs 2/26)</h3>
+  <table>
+    <tr>
+      <th style="text-align:left">Component</th>
+      <th>Zone</th>
+      <th>2/27 (BCF)</th>
+      <th>2/26 (BCF)</th>
+      <th>Δ BCF</th>
+      <th>Δ MDth</th>
+      <th>Δ%</th>
+      <th>Signal</th>
+    </tr>
+    <tr>
+      <td>Stony Point Compressor</td><td>Head</td>
+      <td>1.637</td><td>1.821</td>
+      <td class="delta-cell down">-0.183</td><td class="down">-183</td><td class="pct-cell">-10.0%</td>
+      <td><span class="tag tag-loose">Major Drop</span></td>
+    </tr>
+    <tr>
+      <td>Southeast Station</td><td>SP→OX</td>
+      <td>1.580</td><td>1.741</td>
+      <td class="delta-cell down">-0.161</td><td class="down">-161</td><td class="pct-cell">-9.2%</td>
+      <td><span class="tag tag-loose">Declining</span></td>
+    </tr>
+    <tr>
+      <td>Iroquois Export (Brookfield)</td><td>SP→OX</td>
+      <td>-0.129</td><td>-0.265</td>
+      <td class="delta-cell up">+0.136</td><td class="up">+136</td><td class="pct-cell">-51.3%</td>
+      <td><span class="tag tag-loose tag-big">Major: Less Export</span></td>
+    </tr>
+    <tr>
+      <td>Oxford Station</td><td>SP→OX</td>
+      <td>1.342</td><td>1.330</td>
+      <td class="delta-cell flat">+0.012</td><td class="flat">+12</td><td class="pct-cell">+0.9%</td>
+      <td><span class="tag tag-neutral">Flat</span></td>
+    </tr>
+    <tr style="border-top: 2px solid var(--border);">
+      <td><strong>Zone Balance (SP→OX)</strong></td><td>SP→OX</td>
+      <td><strong>0.109</strong></td><td><strong>0.146</strong></td>
+      <td class="delta-cell down"><strong>-0.037</strong></td><td class="down">-37</td><td class="pct-cell">-25.3%</td>
+      <td><span class="tag tag-neutral">Tightening</span></td>
+    </tr>
+    <tr>
+      <td>CT Electric</td><td>OX→BV</td>
+      <td>-0.256</td><td>-0.190</td>
+      <td class="delta-cell down">-0.066</td><td class="down">-66</td><td class="pct-cell">+34.7%</td>
+      <td><span class="tag tag-tight tag-big">Spike: 7d High</span></td>
+    </tr>
+    <tr>
+      <td>CT ResCom</td><td>OX→BV</td>
+      <td>-0.382</td><td>-0.380</td>
+      <td class="delta-cell flat">-0.002</td><td class="flat">-2</td><td class="pct-cell">+0.5%</td>
+      <td><span class="tag tag-neutral">Flat</span></td>
+    </tr>
+    <tr>
+      <td>Burrillville Station</td><td>OX→BV</td>
+      <td>0.721</td><td>0.809</td>
+      <td class="delta-cell down">-0.088</td><td class="down">-88</td><td class="pct-cell">-10.9%</td>
+      <td><span class="tag tag-loose">Major Drop</span></td>
+    </tr>
+    <tr style="border-top: 2px solid var(--border);">
+      <td><strong>Zone Balance (OX→BV)</strong></td><td>OX→BV</td>
+      <td><strong>-0.017</strong></td><td><strong>-0.048</strong></td>
+      <td class="delta-cell up"><strong>+0.031</strong></td><td class="up">+31</td><td class="pct-cell">—</td>
+      <td><span class="tag tag-tight">Still Negative</span></td>
+    </tr>
+    <tr>
+      <td>Mendon Receipt (TGP)</td><td>BV→LDC</td>
+      <td>0.243</td><td>0.180</td>
+      <td class="delta-cell up">+0.063</td><td class="up">+63</td><td class="pct-cell">+35.0%</td>
+      <td><span class="tag tag-loose tag-big">Surging Supply</span></td>
+    </tr>
+    <tr>
+      <td>MARI ResCom</td><td>BV→LDC</td>
+      <td>-0.839</td><td>-0.885</td>
+      <td class="delta-cell up">+0.046</td><td class="up">+46</td><td class="pct-cell">-5.2%</td>
+      <td><span class="tag tag-loose">Demand Easing</span></td>
+    </tr>
+    <tr>
+      <td>Power Burns & Other</td><td>BV→LDC</td>
+      <td>0.118</td><td>0.077</td>
+      <td class="delta-cell down">+0.041</td><td class="down">+41</td><td class="pct-cell">+53.2%</td>
+      <td><span class="tag tag-tight">Rising</span></td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Nomination Change Waterfall (2/27 vs 2/26, MDth)</h3>
+  <div class="chart-container-tall">
+    <canvas id="nomsWaterfallChart"></canvas>
+  </div>
+  <div class="commentary">
+    The <strong>three biggest swings</strong> on 2/27: (1) Stony Point head station dropped 183 MDth — the pipeline is simply pushing less gas east; (2) Iroquois Brookfield retained 136 MDth on AGT by dramatically reducing exports; (3) Burrillville fell 88 MDth, squeezing downstream supply. The <strong>Mendon +63 MDth surge</strong> partially offset the Burrillville decline for the LDC zone. CT Electric bucked the loosening trend with a +66 MDth spike — a bullish floor-setting signal for power generation demand.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 6: COMPRESSOR STATION TRAILING DELTAS     -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2>Compressor Station — Trailing Daily Deltas (Genscape)</h2>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Daily Change in Throughput (BCF)</h3>
+    <div class="chart-container-tall">
+      <canvas id="compDeltaChart"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Absolute Throughput with Trend</h3>
+    <div class="chart-container-tall">
+      <canvas id="compAbsChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="overflow-x: auto;">
+  <h3>Compressor Daily Deltas — Trailing 14 Days (Genscape, BCF)</h3>
+  <table class="mini-table" id="compDeltaTable"></table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 7: RECEIPTS & DELIVERIES TRAILING DELTAS  -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2>System Receipts & Deliveries — Trailing Deltas</h2>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Daily Δ in Total Receipts & Deliveries (BCF)</h3>
+    <div class="chart-container">
+      <canvas id="balanceDeltaChart"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Net Imbalance (Receipts - Deliveries) by Day</h3>
+    <div class="chart-container">
+      <canvas id="netImbalanceChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 8: TOP POINT-LEVEL RECEIPT/DELIVERY DATA  -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2>Key Receipt & Delivery Points — 2/26 Genscape Nominations</h2>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Receipt Points (Supply Into AGT)</h3>
+    <table>
+      <tr><th style="text-align:left">Receipt Point</th><th>Interconnect</th><th>MDth/d</th><th>BCF</th><th>% of Total</th></tr>
+      <tr><td>MAHWAH (TGP)</td><td>Marcellus</td><td>1,010,201</td><td>1.010</td><td>33.6%</td></tr>
+      <tr><td>RAMAPO (Millennium)</td><td>Marcellus/Utica</td><td>763,224</td><td>0.763</td><td>25.4%</td></tr>
+      <tr><td>LAMBERTVILLE (TETCO)</td><td>Appalachian</td><td>475,789</td><td>0.476</td><td>15.8%</td></tr>
+      <tr><td>MENDON (TGP)</td><td>TGP 200-Line</td><td>198,203</td><td>0.198</td><td>6.6%</td></tr>
+      <tr><td>CENTERVILLE (Transco)</td><td>Gulf Coast</td><td>142,919</td><td>0.143</td><td>4.8%</td></tr>
+      <tr><td>TETCO - HANOVER</td><td>Appalachian</td><td>91,095</td><td>0.091</td><td>3.0%</td></tr>
+      <tr><td>SALEM ESSEX (Maritimes)</td><td>Canadian/LNG</td><td>72,765</td><td>0.073</td><td>2.4%</td></tr>
+      <tr><td>BROOKFIELD (Iroquois)</td><td>Canadian/Dawn</td><td>64,667</td><td>0.065</td><td>2.2%</td></tr>
+      <tr><td>COLUMBIA HANOVER</td><td>Appalachian</td><td>61,669</td><td>0.062</td><td>2.1%</td></tr>
+      <tr><td>EVERETT LNG</td><td>LNG Import</td><td>17,093</td><td>0.017</td><td>0.6%</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Delivery Points (Demand Off AGT)</h3>
+    <table>
+      <tr><th style="text-align:left">Delivery Point</th><th>Category</th><th>MDth/d</th><th>BCF</th></tr>
+      <tr><td>AGT TO TE HANOVER</td><td>Hub/LDC</td><td>610,253</td><td>0.610</td></tr>
+      <tr><td>BROOKFIELD (Iroq Del)</td><td>Pipeline Export</td><td>339,192</td><td>0.339</td></tr>
+      <tr><td>NATGRID PONKAPOAG</td><td>LDC (Boston)</td><td>141,194</td><td>0.141</td></tr>
+      <tr><td>PG&E LAKE ROAD</td><td>Power Gen</td><td>125,802</td><td>0.126</td></tr>
+      <tr><td>CPV TOWANTIC</td><td>Power Gen</td><td>116,000</td><td>0.116</td></tr>
+      <tr><td>MYSTIC</td><td>Power Gen</td><td>111,072</td><td>0.111</td></tr>
+      <tr><td>KLEEN ENERGY</td><td>Power Gen</td><td>84,000</td><td>0.084</td></tr>
+      <tr><td>NORTH HAVEN (SO CT)</td><td>LDC (CT)</td><td>75,505</td><td>0.076</td></tr>
+      <tr><td>ANP BELLINGHAM</td><td>Power Gen</td><td>72,970</td><td>0.073</td></tr>
+      <tr><td>BROCKTON</td><td>LDC (MA)</td><td>68,826</td><td>0.069</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="highlight-box">
+    <strong>Key interconnect flow:</strong> Iroquois Brookfield net export = 339,192 (Del) - 64,667 (Rec) = <strong>274,525 MDth/d net export</strong> from AGT to Iroquois on 2/26 noms. By 2/27 EnergyGPS, the export dropped to just 129 MDth — a <strong>~145 MDth daily reduction</strong>, the single largest swing on the system.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 9: PRICE vs PHYSICAL CORRELATION          -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2 class="section-divider">Price vs Physical Correlation — Daily Changes</h2>
+
+<div class="card">
+  <div class="chart-container-tall">
+    <canvas id="priceDeltaVsFlowDeltaChart"></canvas>
+  </div>
+  <div class="commentary">
+    <strong>Daily changes in price track daily changes in throughput, but with leverage.</strong> On trade date 2/26, AGT cash fell $1.91 (-31%) while Stony Point fell only 183 MDth (-10%). The price-to-flow beta is roughly <strong>3:1</strong> — a 10% physical loosening triggers ~30% price decline. This convexity exists because AGT runs near capacity: the marginal molecule's price is extremely sensitive to the supply-demand balance when the system is tight, and collapses rapidly once the constraint eases.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 10: DAILY CHANGE SIGNALS                  -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<h2>Daily Change Signals</h2>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Bearish Changes (2/27 vs 2/26)</h3>
+    <div class="highlight-box signal-bearish">
+      <table class="mini-table" style="width:100%">
+        <tr><th style="text-align:left">Signal</th><th>Δ</th><th>Magnitude</th></tr>
+        <tr><td>AGT Cash</td><td class="down">-$1.91</td><td class="pct-cell">-31%</td></tr>
+        <tr><td>AGT Balmo</td><td class="down">-$3.31</td><td class="pct-cell">-43%</td></tr>
+        <tr><td>AGT Basis</td><td class="down">-$1.83</td><td class="pct-cell">-59%</td></tr>
+        <tr><td>Iroq Z2 Basis</td><td class="down">-$1.70</td><td class="pct-cell">-72%</td></tr>
+        <tr><td>TETCO M3 Basis</td><td class="down">-$0.26</td><td class="pct-cell">Deeper discount</td></tr>
+        <tr><td>Stony Point</td><td class="down">-183 MDth</td><td class="pct-cell">-10%</td></tr>
+        <tr><td>Burrillville</td><td class="down">-88 MDth</td><td class="pct-cell">-11%</td></tr>
+        <tr><td>MARI ResCom</td><td class="up">+46 MDth</td><td class="pct-cell">Less demand</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Bullish / Floor Changes (2/27 vs 2/26)</h3>
+    <div class="highlight-box signal-bullish">
+      <table class="mini-table" style="width:100%">
+        <tr><th style="text-align:left">Signal</th><th>Δ</th><th>Magnitude</th></tr>
+        <tr><td>CT Electric</td><td class="down">+66 MDth</td><td class="pct-cell">+35% (7d high)</td></tr>
+        <tr><td>Cash-Balmo Spread</td><td class="up">+$1.40</td><td class="pct-cell">Convergence</td></tr>
+        <tr><td>Mendon Receipt (TGP)</td><td class="up">+63 MDth</td><td class="pct-cell">+35% surge</td></tr>
+        <tr><td>Iroquois Retention</td><td class="up">+136 MDth</td><td class="pct-cell">Gas kept on AGT</td></tr>
+        <tr><td>OX→BV Balance</td><td class="up">+31 MDth</td><td class="pct-cell">Less negative</td></tr>
+        <tr><td>HH Cash</td><td class="flat">-$0.08</td><td class="pct-cell">Stable floor</td></tr>
+        <tr><td colspan="3" style="text-align:left; color: var(--muted); padding-top: 8px;">
+          Zero storage on AGT = any cold snap re-tightens instantly from current loose posture
+        </td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  Helios CTA | AGT Daily Changes Report | Data: EnergyGPS, Genscape (Azure SQL), ICE (Azure PostgreSQL) | Generated 2026-02-27
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+// DATA
+// ══════════════════════════════════════════════════════
+
+// Compressor station data (Genscape, gas days 2/1-2/26)
+const compDates = ["2/1","2/2","2/3","2/4","2/5","2/6","2/7","2/8","2/9","2/10","2/11","2/12","2/13","2/14","2/15","2/16","2/17","2/18","2/19","2/20","2/21","2/22","2/23","2/24","2/25","2/26"];
+const stonyPoint = [1.779,1.803,1.842,1.856,1.848,1.86,1.925,1.912,1.876,1.85,1.874,1.852,1.817,1.904,1.851,1.902,1.841,1.902,1.826,1.872,1.822,1.874,1.954,1.917,1.917,1.86];
+const southeast = [1.691,1.722,1.758,1.774,1.763,1.76,1.834,1.825,1.79,1.774,1.796,1.771,1.741,1.831,1.778,1.828,1.776,1.835,1.758,1.804,1.754,1.799,1.878,1.834,1.84,1.787];
+const oxford = [1.217,1.336,1.301,1.34,1.308,1.289,1.336,1.31,1.265,1.325,1.389,1.36,1.44,1.512,1.441,1.473,1.42,1.434,1.409,1.454,1.41,1.441,1.349,1.37,1.447,1.372];
+const burrillville = [0.679,0.807,0.724,0.778,0.758,0.741,0.786,0.746,0.707,0.762,0.814,0.778,0.883,0.956,0.928,0.962,0.894,0.896,0.888,0.911,0.898,0.887,0.796,0.784,0.899,0.83];
+
+// System balance data (gas days 2/1-2/26)
+const balDates = compDates;
+const receipts = [3.143,3.091,3.22,3.281,3.305,3.254,3.21,3.344,3.285,3.312,3.174,3.315,3.131,3.177,3.084,3.113,3.122,3.022,3.0,2.97,2.807,2.956,3.342,3.362,3.056,3.004];
+const deliveries = [3.071,3.045,3.144,3.215,3.228,3.187,3.142,3.27,3.252,3.262,3.104,3.225,3.084,3.116,3.019,3.065,3.072,3.008,2.952,2.923,2.788,2.904,3.261,3.302,2.991,2.96];
+
+// ICE pricing (trade dates)
+const priceDates = ["2/2","2/3","2/4","2/5","2/6","2/9","2/10","2/11","2/12","2/13","2/17","2/18","2/19","2/20","2/23","2/24","2/25","2/26"];
+const agtCash = [21.01,22.43,27.00,19.20,30.24,15.42,12.19,12.19,9.95,7.60,6.17,8.00,6.51,8.08,9.81,6.19,6.13,4.22];
+const agtBalmo = [18.30,18.50,19.12,18.88,17.94,13.70,12.50,11.50,11.00,11.22,9.88,10.00,8.05,8.30,7.75,7.66,7.68,4.37];
+const agtBasis = [16.57,18.21,20.57,14.22,25.83,12.19,8.98,8.94,6.53,4.36,3.06,5.02,3.43,4.94,6.68,3.19,3.12,1.29];
+const irqCash = [25.59,25.16,27.49,20.04,34.58,15.22,11.80,10.43,6.86,4.48,5.11,6.41,5.07,5.24,10.12,5.26,5.36,3.58];
+const irqBalmo = [28.30,28.50,29.12,28.88,27.94,16.00,14.90,14.87,14.37,14.59,null,11.50,9.35,9.00,7.93,7.84,7.86,4.11];
+const irqBasis = [21.15,20.94,21.06,15.05,30.17,12.00,8.58,7.19,3.43,1.24,2.01,3.43,1.99,2.11,6.99,2.27,2.35,0.65];
+const tetCash = [6.51,8.67,23.77,7.77,19.64,4.16,3.60,3.89,3.54,2.84,2.62,2.71,2.70,3.08,4.82,2.65,2.93,2.60];
+const tetBasis = [2.07,4.45,17.33,2.78,15.22,0.93,0.39,0.64,0.11,-0.40,-0.49,-0.26,-0.37,-0.05,1.69,-0.34,-0.08,-0.34];
+const hhCash = [4.44,4.22,6.43,4.99,4.41,3.23,3.21,3.25,3.43,3.24,3.11,2.98,3.08,3.13,3.13,2.99,3.01,2.93];
+const hhBalmo = [4.23,4.27,4.89,4.65,4.56,3.52,3.43,3.40,3.46,3.68,null,3.18,3.14,3.14,3.07,2.98,3.00,2.84];
+
+// Helper: compute deltas
+function deltas(arr) {
+  return arr.map((v, i) => i === 0 ? null : (v !== null && arr[i-1] !== null ? +(v - arr[i-1]).toFixed(4) : null));
+}
+function pctDeltas(arr) {
+  return arr.map((v, i) => i === 0 ? null : (v !== null && arr[i-1] !== null && arr[i-1] !== 0 ? +((v - arr[i-1]) / Math.abs(arr[i-1]) * 100).toFixed(1) : null));
+}
+
+const agtCashD = deltas(agtCash);
+const agtBalmoD = deltas(agtBalmo);
+const agtBasisD = deltas(agtBasis);
+const irqCashD = deltas(irqCash);
+const irqBasisD = deltas(irqBasis);
+const tetCashD = deltas(tetCash);
+const hhCashD = deltas(hhCash);
+const agtCashBalmo = agtCash.map((v, i) => agtBalmo[i] !== null ? +(v - agtBalmo[i]).toFixed(2) : null);
+
+// Chart defaults
+const chartDefaults = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { position: 'bottom', labels: { color: '#a1a1aa', font: { size: 11 }, boxWidth: 12, padding: 16 } }
+  },
+  scales: {
+    x: { ticks: { color: '#71717a', font: { size: 10 } }, grid: { color: 'rgba(42,45,53,0.5)' } },
+    y: { ticks: { color: '#71717a', font: { size: 10 } }, grid: { color: 'rgba(42,45,53,0.5)' } }
+  }
+};
+
+// ══════════════════════════════════════════════════════
+// CHART 1: Cash DoD (bar chart)
+// ══════════════════════════════════════════════════════
+const trailingN = 8;
+const tDates = priceDates.slice(-trailingN);
+const tAgtD = agtCashD.slice(-trailingN);
+const tIrqD = irqCashD.slice(-trailingN);
+const tTetD = tetCashD.slice(-trailingN);
+const tHhD = hhCashD.slice(-trailingN);
+
+new Chart(document.getElementById('cashDodChart'), {
+  type: 'bar',
+  data: {
+    labels: tDates,
+    datasets: [
+      { label: 'AGT Cash Δ', data: tAgtD, backgroundColor: tAgtD.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'), borderRadius: 3 },
+      { label: 'Iroq Z2 Cash Δ', data: tIrqD, backgroundColor: tIrqD.map(v => v >= 0 ? 'rgba(139,92,246,0.5)' : 'rgba(139,92,246,0.3)'), borderRadius: 3 },
+      { label: 'HH Cash Δ', data: tHhD, backgroundColor: 'rgba(113,113,122,0.4)', borderRadius: 3 },
+    ]
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, title: { display: true, text: '$/MMBtu DoD Change', color: '#71717a' } } } }
+});
+
+// ══════════════════════════════════════════════════════
+// CHART 2: Balmo DoD (bar chart)
+// ══════════════════════════════════════════════════════
+const tAgtBD = deltas(agtBalmo).slice(-trailingN);
+const tIrqBD = deltas(irqBalmo.map(v => v || 0)).slice(-trailingN);
+const tHhBD = deltas(hhBalmo.map(v => v || 0)).slice(-trailingN);
+
+new Chart(document.getElementById('balmoDodChart'), {
+  type: 'bar',
+  data: {
+    labels: tDates,
+    datasets: [
+      { label: 'AGT Balmo Δ', data: tAgtBD, backgroundColor: tAgtBD.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'), borderRadius: 3 },
+      { label: 'Iroq Z2 Balmo Δ', data: tIrqBD, backgroundColor: tIrqBD.map(v => v >= 0 ? 'rgba(139,92,246,0.5)' : 'rgba(139,92,246,0.3)'), borderRadius: 3 },
+      { label: 'HH Balmo Δ', data: tHhBD, backgroundColor: 'rgba(113,113,122,0.4)', borderRadius: 3 },
+    ]
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, title: { display: true, text: '$/MMBtu DoD Change', color: '#71717a' } } } }
+});
+
+// ══════════════════════════════════════════════════════
+// CHART 3: Basis DoD (bar chart)
+// ══════════════════════════════════════════════════════
+const tAgtBasD = agtBasisD.slice(-trailingN);
+const tIrqBasD = irqBasisD.slice(-trailingN);
+const tTetBasD = deltas(tetBasis).slice(-trailingN);
+
+new Chart(document.getElementById('basisDodChart'), {
+  type: 'bar',
+  data: {
+    labels: tDates,
+    datasets: [
+      { label: 'AGT Basis Δ', data: tAgtBasD, backgroundColor: '#3b82f6aa', borderRadius: 3 },
+      { label: 'Iroq Z2 Basis Δ', data: tIrqBasD, backgroundColor: '#8b5cf6aa', borderRadius: 3 },
+      { label: 'TETCO M3 Basis Δ', data: tTetBasD, backgroundColor: '#f59e0baa', borderRadius: 3 },
+    ]
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, title: { display: true, text: '$/MMBtu Basis DoD Change', color: '#71717a' } } } }
+});
+
+// ══════════════════════════════════════════════════════
+// CHART 4: Cash-Balmo Spread over time
+// ══════════════════════════════════════════════════════
+const irqCashBalmo = irqCash.map((v, i) => irqBalmo[i] !== null ? +(v - irqBalmo[i]).toFixed(2) : null);
+
+new Chart(document.getElementById('cashBalmoDodChart'), {
+  type: 'line',
+  data: {
+    labels: priceDates.slice(-10),
+    datasets: [
+      { label: 'AGT Cash-Balmo', data: agtCashBalmo.slice(-10), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', borderWidth: 2, pointRadius: 4, fill: true },
+      { label: 'Iroq Z2 Cash-Balmo', data: irqCashBalmo.slice(-10), borderColor: '#8b5cf6', borderWidth: 2, pointRadius: 3, fill: false },
+      { label: 'Zero Line', data: Array(10).fill(0), borderColor: '#71717a', borderWidth: 1, borderDash: [4,4], pointRadius: 0, fill: false },
+    ]
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, title: { display: true, text: '$/MMBtu (Cash - Balmo)', color: '#71717a' } } } }
+});
+
+// ══════════════════════════════════════════════════════
+// TRAILING PRICE TABLE
+// ══════════════════════════════════════════════════════
+(function() {
+  const n = 8;
+  const sl = priceDates.length;
+  let html = '<tr><th>Trade Dt</th><th>AGT Cash</th><th>Δ</th><th>AGT Balmo</th><th>Δ</th><th>AGT C-B</th><th>AGT Basis</th><th>Δ</th><th>Iroq Cash</th><th>Δ</th><th>Iroq Basis</th><th>Δ</th><th>TETCO M3</th><th>Δ</th><th>HH Cash</th><th>Δ</th></tr>';
+  for (let i = sl - n; i < sl; i++) {
+    const isLast = i === sl - 1;
+    const cls = isLast ? ' class="highlight-row"' : '';
+    const fmt = (v) => v !== null && v !== undefined ? '$' + v.toFixed(2) : '—';
+    const fmtD = (v) => {
+      if (v === null || v === undefined) return '<td class="delta-cell flat">—</td>';
+      const c = v > 0.01 ? 'up' : v < -0.01 ? 'down' : 'flat';
+      return `<td class="delta-cell ${c}">${v >= 0 ? '+' : ''}$${v.toFixed(2)}</td>`;
+    };
+    const cb = agtCashBalmo[i] !== null ? (agtCashBalmo[i] >= 0 ? '+' : '') + '$' + agtCashBalmo[i].toFixed(2) : '—';
+    const cbCls = agtCashBalmo[i] > 0 ? 'up' : agtCashBalmo[i] < 0 ? 'down' : 'flat';
+    html += `<tr${cls}><td>${priceDates[i]}</td>`;
+    html += `<td>${fmt(agtCash[i])}</td>${fmtD(agtCashD[i])}`;
+    html += `<td>${fmt(agtBalmo[i])}</td>${fmtD(deltas(agtBalmo)[i])}`;
+    html += `<td class="${cbCls}">${cb}</td>`;
+    html += `<td>${fmt(agtBasis[i])}</td>${fmtD(agtBasisD[i])}`;
+    html += `<td>${fmt(irqCash[i])}</td>${fmtD(irqCashD[i])}`;
+    html += `<td>${fmt(irqBasis[i])}</td>${fmtD(irqBasisD[i])}`;
+    html += `<td>${fmt(tetCash[i])}</td>${fmtD(tetCashD[i])}`;
+    html += `<td>${fmt(hhCash[i])}</td>${fmtD(hhCashD[i])}`;
+    html += '</tr>';
+  }
+  document.getElementById('trailingPriceTable').innerHTML = html;
+})();
+
+// ══════════════════════════════════════════════════════
+// TRAILING DELTA CHART (AGT Cash + Basis deltas)
+// ══════════════════════════════════════════════════════
+new Chart(document.getElementById('trailingDeltaChart'), {
+  type: 'bar',
+  data: {
+    labels: priceDates.slice(-10),
+    datasets: [
+      { label: 'AGT Cash Δ', data: agtCashD.slice(-10), backgroundColor: agtCashD.slice(-10).map(v => v >= 0 ? 'rgba(34,197,94,0.8)' : 'rgba(239,68,68,0.8)'), borderRadius: 3, yAxisID: 'y' },
+      { label: 'AGT Cash-Balmo', data: agtCashBalmo.slice(-10), type: 'line', borderColor: '#06b6d4', borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#06b6d4', fill: false, yAxisID: 'y' },
+      { label: 'AGT Cash (Abs)', data: agtCash.slice(-10), type: 'line', borderColor: '#f59e0b', borderWidth: 2, pointRadius: 3, borderDash: [5,3], fill: false, yAxisID: 'y1' },
+    ]
+  },
+  options: {
+    ...chartDefaults,
+    scales: {
+      x: chartDefaults.scales.x,
+      y: { position: 'left', ticks: { color: '#ef4444', font: { size: 10 } }, grid: { color: 'rgba(42,45,53,0.5)' }, title: { display: true, text: '$/MMBtu Change', color: '#ef4444' } },
+      y1: { position: 'right', ticks: { color: '#f59e0b', font: { size: 10 } }, grid: { drawOnChartArea: false }, title: { display: true, text: '$/MMBtu (Absolute)', color: '#f59e0b' } },
+    }
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// NOMS WATERFALL CHART
+// ══════════════════════════════════════════════════════
+const wfLabels = ['Stony Pt','Southeast','Iroq Export','Oxford','CT Electric','CT ResCom','Burrillville','Mendon (TGP)','MARI ResCom','Power Burns'];
+const wfValues = [-183, -161, +136, +12, -66, -2, -88, +63, +46, +41];
+
+new Chart(document.getElementById('nomsWaterfallChart'), {
+  type: 'bar',
+  data: {
+    labels: wfLabels,
+    datasets: [{
+      label: 'Daily Change (MDth)',
+      data: wfValues,
+      backgroundColor: wfValues.map(v => {
+        if (v > 20) return 'rgba(34,197,94,0.8)';
+        if (v < -20) return 'rgba(239,68,68,0.8)';
+        return 'rgba(245,158,11,0.6)';
+      }),
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: wfValues.map(v => {
+        if (v > 20) return '#22c55e';
+        if (v < -20) return '#ef4444';
+        return '#f59e0b';
+      }),
+    }]
+  },
+  options: {
+    ...chartDefaults,
+    indexAxis: 'y',
+    plugins: {
+      ...chartDefaults.plugins,
+      legend: { display: false },
+    },
+    scales: {
+      x: { ...chartDefaults.scales.x, title: { display: true, text: 'MDth/d Change', color: '#71717a' }, grid: { color: 'rgba(42,45,53,0.5)' } },
+      y: { ...chartDefaults.scales.y, ticks: { color: '#e4e4e7', font: { size: 11 } } }
+    }
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// COMPRESSOR DELTA CHART (trailing 14 days)
+// ══════════════════════════════════════════════════════
+const tail14 = 14;
+const c14Dates = compDates.slice(-tail14);
+const spD = deltas(stonyPoint).slice(-tail14);
+const bvD = deltas(burrillville).slice(-tail14);
+
+new Chart(document.getElementById('compDeltaChart'), {
+  type: 'bar',
+  data: {
+    labels: c14Dates,
+    datasets: [
+      { label: 'Stony Point Δ', data: spD, backgroundColor: spD.map(v => v >= 0 ? 'rgba(59,130,246,0.7)' : 'rgba(59,130,246,0.35)'), borderRadius: 2 },
+      { label: 'Burrillville Δ', data: bvD, backgroundColor: bvD.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(34,197,94,0.35)'), borderRadius: 2 },
+    ]
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, title: { display: true, text: 'BCF Daily Change', color: '#71717a' } } } }
+});
+
+// ══════════════════════════════════════════════════════
+// COMPRESSOR ABSOLUTE CHART (trailing 14 days)
+// ══════════════════════════════════════════════════════
+new Chart(document.getElementById('compAbsChart'), {
+  type: 'line',
+  data: {
+    labels: c14Dates,
+    datasets: [
+      { label: 'Stony Point', data: stonyPoint.slice(-tail14), borderColor: '#3b82f6', borderWidth: 2, pointRadius: 3, fill: false },
+      { label: 'Southeast', data: southeast.slice(-tail14), borderColor: '#8b5cf6', borderWidth: 1.5, pointRadius: 2, fill: false },
+      { label: 'Oxford', data: oxford.slice(-tail14), borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 2, fill: false },
+      { label: 'Burrillville', data: burrillville.slice(-tail14), borderColor: '#22c55e', borderWidth: 2, pointRadius: 3, fill: false },
+    ]
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, title: { display: true, text: 'BCF', color: '#71717a' } } } }
+});
+
+// ══════════════════════════════════════════════════════
+// COMPRESSOR DELTA TABLE
+// ══════════════════════════════════════════════════════
+(function() {
+  const stations = { 'Stony Point': stonyPoint, 'Southeast': southeast, 'Oxford': oxford, 'Burrillville': burrillville };
+  const names = Object.keys(stations);
+  let html = '<tr><th>Date</th>';
+  names.forEach(n => html += `<th>${n}</th><th>Δ</th>`);
+  html += '</tr>';
+  const n = 14;
+  const start = compDates.length - n;
+  for (let i = start; i < compDates.length; i++) {
+    const isLast = i === compDates.length - 1;
+    html += `<tr${isLast ? ' class="highlight-row"' : ''}><td>${compDates[i]}</td>`;
+    names.forEach(name => {
+      const arr = stations[name];
+      const val = arr[i].toFixed(3);
+      const d = i > 0 ? +(arr[i] - arr[i-1]).toFixed(3) : 0;
+      const cls = d > 0.005 ? 'up' : d < -0.005 ? 'down' : 'flat';
+      html += `<td>${val}</td><td class="delta-cell ${cls}">${d >= 0 ? '+' : ''}${d.toFixed(3)}</td>`;
+    });
+    html += '</tr>';
+  }
+  document.getElementById('compDeltaTable').innerHTML = html;
+})();
+
+// ══════════════════════════════════════════════════════
+// BALANCE DELTA CHART
+// ══════════════════════════════════════════════════════
+const recD = deltas(receipts).slice(-tail14);
+const delD = deltas(deliveries).slice(-tail14);
+
+new Chart(document.getElementById('balanceDeltaChart'), {
+  type: 'bar',
+  data: {
+    labels: c14Dates,
+    datasets: [
+      { label: 'Receipts Δ', data: recD, backgroundColor: recD.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(34,197,94,0.35)'), borderRadius: 2 },
+      { label: 'Deliveries Δ', data: delD, backgroundColor: delD.map(v => v >= 0 ? 'rgba(239,68,68,0.7)' : 'rgba(239,68,68,0.35)'), borderRadius: 2 },
+    ]
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, title: { display: true, text: 'BCF Daily Change', color: '#71717a' } } } }
+});
+
+// ══════════════════════════════════════════════════════
+// NET IMBALANCE CHART
+// ══════════════════════════════════════════════════════
+const netImbalance = receipts.map((r, i) => +(r - deliveries[i]).toFixed(3));
+
+new Chart(document.getElementById('netImbalanceChart'), {
+  type: 'bar',
+  data: {
+    labels: c14Dates,
+    datasets: [{
+      label: 'Net Imbalance (Rec - Del)',
+      data: netImbalance.slice(-tail14),
+      backgroundColor: netImbalance.slice(-tail14).map(v => v >= 0 ? 'rgba(59,130,246,0.7)' : 'rgba(245,158,11,0.7)'),
+      borderRadius: 3,
+    }]
+  },
+  options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display: false } }, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, title: { display: true, text: 'BCF (Receipts - Deliveries)', color: '#71717a' } } } }
+});
+
+// ══════════════════════════════════════════════════════
+// PRICE DELTA vs FLOW DELTA SCATTER/DUAL CHART
+// ══════════════════════════════════════════════════════
+// Align Stony Point to price dates
+const spAligned = [1.803,1.842,1.856,1.848,1.86,1.876,1.85,1.874,1.852,1.817,1.841,1.902,1.826,1.872,1.954,1.917,1.917,1.86];
+const spAlignedD = deltas(spAligned);
+
+new Chart(document.getElementById('priceDeltaVsFlowDeltaChart'), {
+  type: 'bar',
+  data: {
+    labels: priceDates.slice(-10),
+    datasets: [
+      { label: 'AGT Cash Δ ($/MMBtu)', data: agtCashD.slice(-10), backgroundColor: agtCashD.slice(-10).map(v => v >= 0 ? 'rgba(239,68,68,0.8)' : 'rgba(239,68,68,0.5)'), borderRadius: 3, yAxisID: 'y' },
+      { label: 'Stony Pt Δ (BCF)', data: spAlignedD.slice(-10), type: 'line', borderColor: '#3b82f6', borderWidth: 2.5, pointRadius: 5, pointBackgroundColor: '#3b82f6', fill: false, yAxisID: 'y1' },
+    ]
+  },
+  options: {
+    ...chartDefaults,
+    scales: {
+      x: chartDefaults.scales.x,
+      y: { position: 'left', ticks: { color: '#ef4444', font: { size: 10 } }, grid: { color: 'rgba(42,45,53,0.5)' }, title: { display: true, text: '$/MMBtu Cash Δ', color: '#ef4444' } },
+      y1: { position: 'right', ticks: { color: '#3b82f6', font: { size: 10 } }, grid: { drawOnChartArea: false }, title: { display: true, text: 'BCF Throughput Δ', color: '#3b82f6' } },
+    }
+  }
+});
+</script>
+</body>
+</html>
