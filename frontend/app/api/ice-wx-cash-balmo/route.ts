@@ -183,7 +183,7 @@ FINAL AS (
     LEFT JOIN BALMO b ON wsi.date = b.gas_day
 )
 SELECT * FROM FINAL
-ORDER BY gas_day ASC
+ORDER BY year DESC, gas_day ASC
 `;
 }
 
