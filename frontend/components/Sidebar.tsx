@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { WORKBENCH_V2_ENABLED } from "@/lib/feature-flags";
 
-export type ActiveSection = "home" | "workbench" | "genscape-noms" | "watchlists" | "watchlist-editor" | "cash-balmo" | "wx-cash-balmo";
+export type ActiveSection = "home" | "workbench" | "genscape-noms" | "cash-and-noms" | "watchlists" | "watchlist-editor" | "cash-balmo" | "wx-cash-balmo" | "cash-pricing-matrix";
 
 interface SidebarProps {
   activeSection: ActiveSection;
@@ -54,11 +54,19 @@ const TOP_SECTIONS: TopSection[] = [
       },
       {
         id: "genscape-noms",
-        label: "Daily Noms",
+        label: "Historical Noms",
         group: "Noms",
         iconPath:
           "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
         iconColor: "text-purple-400",
+      },
+      {
+        id: "cash-and-noms",
+        label: "Noms v Cash",
+        group: "Noms v Cash",
+        iconPath:
+          "M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941",
+        iconColor: "text-green-400",
       },
     ],
   },
@@ -71,10 +79,10 @@ const TOP_SECTIONS: TopSection[] = [
     railIconColor: "text-cyan-400",
     navItems: [
       {
-        id: "cash-balmo",
-        label: "Cash-Balmo",
+        id: "cash-pricing-matrix",
+        label: "Cash Pricing Matrix",
         iconPath:
-          "M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z",
+          "M3.375 19.5h17.25m-17.25 0A1.125 1.125 0 012.25 18.375V5.625A1.125 1.125 0 013.375 4.5h17.25A1.125 1.125 0 0121.75 5.625v12.75A1.125 1.125 0 0120.625 19.5m-17.25 0h17.25M6 9h.008v.008H6V9zm0 3h.008v.008H6V12zm0 3h.008v.008H6V15zm3-6h.008v.008H9V9zm0 3h.008v.008H9V12zm0 3h.008v.008H9V15zm3-6h.008v.008H12V9zm0 3h.008v.008H12V12zm0 3h.008v.008H12V15zm3-6h.008v.008H15V9zm0 3h.008v.008H15V12zm0 3h.008v.008H15V15zm3-6h.008v.008H18V9zm0 3h.008v.008H18V12zm0 3h.008v.008H18V15z",
         iconColor: "text-cyan-400",
       },
       {
@@ -105,18 +113,7 @@ const TOP_SECTIONS: TopSection[] = [
   },
 ];
 
-// Map each ActiveSection to its parent TopSection key
-function getParentKey(section: ActiveSection): string {
-  for (const top of TOP_SECTIONS) {
-    if (top.navItems.some((item) => item.id === section)) return top.key;
-  }
-  return TOP_SECTIONS[0].key;
-}
-
 export default function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
-  const [activeTopSection, setActiveTopSection] = useState<string>(getParentKey(activeSection));
-  const [panelOpen, setPanelOpen] = useState(true);
-
   // Filter nav items based on feature flags
   const filteredSections = TOP_SECTIONS.map((section) => ({
     ...section,
@@ -126,148 +123,105 @@ export default function Sidebar({ activeSection, onSectionChange }: SidebarProps
     }),
   })).filter((section) => section.navItems.length > 0);
 
-  const currentTopSection = filteredSections.find((s) => s.key === activeTopSection) ?? filteredSections[0];
+  // All sections start expanded
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(filteredSections.map((s) => [s.key, true]))
+  );
 
-  const handleRailClick = (key: string) => {
-    if (activeTopSection === key) {
-      setPanelOpen((v) => !v);
-    } else {
-      setActiveTopSection(key);
-      setPanelOpen(true);
-    }
+  const toggleSection = (key: string) => {
+    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   return (
-    <div className="flex">
-      {/* Icon Rail */}
-      <aside className="flex w-[56px] flex-col items-center border-r border-gray-800 bg-[#080a10] py-3 gap-1">
-        {/* Home button */}
+    <aside className="flex w-[210px] flex-shrink-0 flex-col border-r border-gray-800 bg-[#0b0d14]">
+      {/* Header */}
+      <div className="px-4 pt-5 pb-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500">
+          Helios CTA
+        </p>
+        <p className="mt-0.5 text-sm font-bold text-gray-100">Gas Markets</p>
+      </div>
+
+      <div className="mx-3 h-px bg-gray-800" />
+
+      {/* Home */}
+      <div className="px-2 pt-3 pb-1">
         <button
-          onClick={() => {
-            onSectionChange("home");
-            setPanelOpen(false);
-          }}
-          className={`group flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 transition-colors ${
+          onClick={() => onSectionChange("home")}
+          className={`flex w-full items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
             activeSection === "home"
-              ? "bg-gray-800/70 text-white"
-              : "text-gray-500 hover:bg-gray-800/40 hover:text-gray-300"
+              ? "bg-gray-800/60 text-white"
+              : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
           }`}
-          title="Home"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className={`h-5 w-5 ${activeSection === "home" ? "text-blue-400" : "text-gray-500 group-hover:text-gray-400"}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955a1.126 1.126 0 011.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-          </svg>
-          <span className="text-[9px] font-medium leading-tight">Home</span>
+          Home
         </button>
+      </div>
 
-        <div className="mx-2 my-1 h-px w-6 bg-gray-800" />
-
+      {/* Collapsible Sections */}
+      <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
         {filteredSections.map((section) => {
-          const isActive = activeTopSection === section.key;
+          const isExpanded = expandedSections[section.key] ?? true;
           return (
-            <button
-              key={section.key}
-              onClick={() => handleRailClick(section.key)}
-              className={`group flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 transition-colors ${
-                isActive
-                  ? "bg-gray-800/70 text-white"
-                  : "text-gray-500 hover:bg-gray-800/40 hover:text-gray-300"
-              }`}
-              title={section.railLabel}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className={`h-5 w-5 ${isActive ? section.railIconColor : "text-gray-500 group-hover:text-gray-400"}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
+            <div key={section.key}>
+              {/* Section header toggle */}
+              <button
+                onClick={() => toggleSection(section.key)}
+                className="flex w-full items-center justify-between rounded-md px-3 py-2 transition-colors hover:bg-gray-800/30"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d={section.railIconPath} />
-              </svg>
-              <span className="text-[9px] font-medium leading-tight">{section.railLabel}</span>
-            </button>
+                <span className="text-xs font-bold text-white">
+                  {section.label}
+                </span>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className={`h-3 w-3 text-gray-600 transition-transform ${isExpanded ? "rotate-0" : "-rotate-90"}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Nav items */}
+              {isExpanded && (
+                <div className="mt-0.5 space-y-0.5 pb-1">
+                  {section.navItems.map((item, i) => {
+                    const isActive = activeSection === item.id;
+                    const prevGroup = i > 0 ? section.navItems[i - 1].group : undefined;
+                    const showGroupHeader = item.group && item.group !== prevGroup;
+                    return (
+                      <div key={item.id}>
+                        {showGroupHeader && (
+                          <p className={`px-3 text-[9px] font-bold uppercase tracking-wider text-gray-600 ${i > 0 ? "mt-2 pt-2 border-t border-gray-800/40" : ""} mb-0.5`}>
+                            {item.group}
+                          </p>
+                        )}
+                        <button
+                          onClick={() => onSectionChange(item.id)}
+                          className={`flex w-full items-center rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                            isActive
+                              ? "bg-gray-800/60 text-white"
+                              : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
-      </aside>
+      </nav>
 
-      {/* Expanded Panel */}
-      {panelOpen && currentTopSection && (
-        <aside className="flex w-48 flex-col border-r border-gray-800 bg-[#0b0d14]">
-          {/* Panel Header */}
-          <div className="flex items-center justify-between px-3 py-4">
-            <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
-              {currentTopSection.label}
-            </span>
-            <button
-              onClick={() => setPanelOpen(false)}
-              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
-              title="Collapse panel"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Nav Items */}
-          <nav className="flex-1 px-2 py-1 space-y-1">
-            {currentTopSection.navItems.map((item, i) => {
-              const isActive = activeSection === item.id;
-              const prevGroup = i > 0 ? currentTopSection.navItems[i - 1].group : undefined;
-              const showGroupHeader = item.group && item.group !== prevGroup;
-              return (
-                <div key={item.id}>
-                  {showGroupHeader && (
-                    <p className={`px-3 text-[10px] font-bold uppercase tracking-wider text-gray-600 ${i > 0 ? "mt-3 pt-3 border-t border-gray-800/60" : ""} mb-1`}>
-                      {item.group}
-                    </p>
-                  )}
-                  <button
-                    onClick={() => onSectionChange(item.id)}
-                    className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-gray-800/60 text-white"
-                        : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
-                    }`}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className={`h-4 w-4 flex-shrink-0 ${item.iconColor}`}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d={item.iconPath} />
-                    </svg>
-                    <span>{item.label}</span>
-                  </button>
-                </div>
-              );
-            })}
-          </nav>
-
-          {/* Footer */}
-          <div className="border-t border-gray-800 px-3 py-3">
-            <p className="text-[10px] text-gray-600">Source: Azure SQL</p>
-          </div>
-        </aside>
-      )}
-    </div>
+      {/* Footer */}
+      <div className="border-t border-gray-800 px-4 py-3">
+        <p className="text-[10px] text-gray-600">Source: Azure SQL</p>
+      </div>
+    </aside>
   );
 }

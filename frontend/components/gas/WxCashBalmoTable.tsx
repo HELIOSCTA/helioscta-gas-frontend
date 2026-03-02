@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef } from "react";
+import { memo, useState, useMemo, useCallback, useRef } from "react";
+import type { CSSProperties } from "react";
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid,
   Tooltip as RTooltip, Legend, ResponsiveContainer,
@@ -57,6 +58,8 @@ function getYearColor(year: number): string {
   return YEAR_COLORS[year] ?? "#6b7280";
 }
 
+const GAS_DAY_LABEL_CACHE = new Map<string, string>();
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
@@ -79,14 +82,18 @@ function fmtSpread(v: number | null): string {
 }
 
 function formatGasDay(dateStr: string): string {
+  const cached = GAS_DAY_LABEL_CACHE.get(dateStr);
+  if (cached) return cached;
   const d = new Date(dateStr);
   const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${days[d.getUTCDay()]} ${months[d.getUTCMonth()]}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  const label = `${days[d.getUTCDay()]} ${months[d.getUTCMonth()]}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  GAS_DAY_LABEL_CACHE.set(dateStr, label);
+  return label;
 }
 
 /** DFN cell background: blue=cold, red=warm, intensity by magnitude */
-function dfnBgStyle(v: number | null): React.CSSProperties {
+function dfnBgStyle(v: number | null): CSSProperties {
   if (v === null) return {};
   const abs = Math.abs(v);
   const t = Math.min(abs / 12, 1);
@@ -96,7 +103,7 @@ function dfnBgStyle(v: number | null): React.CSSProperties {
 }
 
 /** Cash-balmo cell background */
-function spreadBgStyle(v: number | null): React.CSSProperties {
+function spreadBgStyle(v: number | null): CSSProperties {
   if (v === null) return {};
   const abs = Math.abs(v);
   const t = Math.min(abs / 0.5, 1);
@@ -111,19 +118,21 @@ function spreadBgStyle(v: number | null): React.CSSProperties {
 
 const LOOKBACK_OPTIONS = [3, 4, 5, 6, 7];
 
-function FilterBar({
-  selectedHub, wxRegion, selectedMonth, lookbackYears,
-  onHubChange, onWxRegionChange, onMonthChange, onLookbackChange,
+const FilterBar = memo(function FilterBar({
+  selectedHub, wxRegion, selectedMonth, lookbackYears, lastDays,
+  onHubChange, onWxRegionChange, onMonthChange, onLookbackChange, onLastDaysChange,
   onApply, loading,
 }: {
   selectedHub: string;
   wxRegion: string;
   selectedMonth: number;
   lookbackYears: number;
+  lastDays: number;
   onHubChange: (hub: string) => void;
   onWxRegionChange: (region: string) => void;
   onMonthChange: (month: number) => void;
   onLookbackChange: (years: number) => void;
+  onLastDaysChange: (days: number) => void;
   onApply: () => void;
   loading: boolean;
 }) {
@@ -197,6 +206,24 @@ function FilterBar({
           </select>
         </div>
 
+        {/* Last X Days */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+            Last X Days
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={60}
+            value={lastDays}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (v >= 1 && v <= 60) onLastDaysChange(v);
+            }}
+            className={selectClass + " w-16 text-center"}
+          />
+        </div>
+
         {/* Apply */}
         <button
           onClick={onApply}
@@ -208,13 +235,13 @@ function FilterBar({
       </div>
     </div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Data Table                                                         */
 /* ------------------------------------------------------------------ */
 
-function DataTable({
+const DataTable = memo(function DataTable({
   rows, hubKey, wxRegion,
 }: {
   rows: Row[];
@@ -227,7 +254,6 @@ function DataTable({
         <thead className="sticky top-0 z-10 bg-[#0f1117]">
           <tr className="border-b border-gray-700 text-[11px] font-semibold uppercase tracking-wider">
             <th className="py-2 px-2 text-left text-gray-500">Year</th>
-            <th className="py-2 px-2 text-left text-gray-500">Month</th>
             <th className="py-2 px-2 text-left text-gray-500">Gas Day</th>
             <th className="py-2 px-2 text-right text-blue-400">GW HDD</th>
             <th className="py-2 px-2 text-right text-red-400">Normals</th>
@@ -240,7 +266,6 @@ function DataTable({
         <tbody>
           {rows.map((row, i) => {
             const year = getNum(row, "year");
-            const month = getNum(row, "month");
             const hdd = getNum(row, `${wxRegion}_gas_hdd`);
             const normals = getNum(row, `${wxRegion}_normals_gas_hdd`);
             const dfn = getNum(row, `${wxRegion}_dfn`);
@@ -254,11 +279,10 @@ function DataTable({
 
             return (
               <tr
-                key={i}
+                key={`${row.gas_day as string}-${year ?? "na"}-${i}`}
                 className={`hover:bg-gray-800/30 ${yearChanged ? "border-t-2 border-gray-600" : "border-b border-gray-800/40"}`}
               >
                 <td className="py-1 px-2 font-mono text-gray-500">{year}</td>
-                <td className="py-1 px-2 font-mono text-gray-500">{month}</td>
                 <td className="py-1 px-2 font-mono text-gray-300 whitespace-nowrap">
                   {formatGasDay(row.gas_day as string)}
                 </td>
@@ -285,7 +309,7 @@ function DataTable({
       </table>
     </div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Scatter Chart                                                      */
@@ -298,20 +322,24 @@ interface ChartPoint {
   year: number;
 }
 
-function WxScatterChart({
-  rows, hubKey, wxRegion, hubLabel, monthLabel,
+const WxScatterChart = memo(function WxScatterChart({
+  rows, hubKey, wxRegion, hubLabel, monthLabel, lastDays,
 }: {
   rows: Row[];
   hubKey: string;
   wxRegion: string;
   hubLabel: string;
   monthLabel: string;
+  lastDays: number;
 }) {
-  const { pointsByYear, recentPoints } = useMemo(() => {
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
+
+  const { pointsByYear, recentPoints, currentYear } = useMemo(() => {
     const byYear: Record<number, ChartPoint[]> = {};
     const recent: ChartPoint[] = [];
     const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000);
+    const cy = now.getFullYear();
+    const cutoff = new Date(now.getTime() - lastDays * 86400000);
 
     for (const row of rows) {
       const hdd = getNum(row, `${wxRegion}_gas_hdd`);
@@ -322,12 +350,21 @@ function WxScatterChart({
       (byYear[year] ??= []).push(pt);
 
       const d = new Date(row.gas_day as string);
-      if (d >= sevenDaysAgo) recent.push(pt);
+      if (d >= cutoff) recent.push(pt);
     }
-    return { pointsByYear: byYear, recentPoints: recent };
-  }, [rows, hubKey, wxRegion]);
+    return { pointsByYear: byYear, recentPoints: recent, currentYear: cy };
+  }, [rows, hubKey, wxRegion, lastDays]);
 
   const years = Object.keys(pointsByYear).map(Number).sort((a, b) => b - a);
+
+  const handleToggle = useCallback((key: string) => {
+    setHiddenSeries((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   if (years.length === 0) {
     return <p className="p-4 text-sm text-gray-600">No chart data available for this selection.</p>;
@@ -338,6 +375,38 @@ function WxScatterChart({
       <h3 className="mb-2 text-center text-[13px] font-semibold text-gray-300">
         {hubLabel} - {monthLabel} - CASH-BALMO vs GW HDD
       </h3>
+
+      {/* Custom legend: Last 7 Days + each year */}
+      <div className="flex flex-wrap justify-end gap-3 mb-1 px-2">
+        {/* Last 7 Days entry */}
+        <button
+          onClick={() => handleToggle("last7")}
+          className="flex items-center gap-1.5 text-[11px]"
+          style={{ color: hiddenSeries.has("last7") ? "#4b5563" : "#d1d5db", cursor: "pointer" }}
+        >
+          <span
+            className="inline-block h-3 w-3 rounded-full"
+            style={{ backgroundColor: hiddenSeries.has("last7") ? "#4b5563" : getYearColor(currentYear) }}
+          />
+          Last {lastDays} Days
+        </button>
+        {/* Year entries */}
+        {years.map((y) => (
+          <button
+            key={y}
+            onClick={() => handleToggle(String(y))}
+            className="flex items-center gap-1.5 text-[11px]"
+            style={{ color: hiddenSeries.has(String(y)) ? "#4b5563" : "#d1d5db", cursor: "pointer" }}
+          >
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: hiddenSeries.has(String(y)) ? "#4b5563" : getYearColor(y) }}
+            />
+            {y}
+          </button>
+        ))}
+      </div>
+
       <ResponsiveContainer width="100%" height={400}>
         <ScatterChart margin={{ top: 10, right: 20, bottom: 30, left: 10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -353,8 +422,9 @@ function WxScatterChart({
           />
           <RTooltip
             cursor={{ strokeDasharray: "3 3" }}
-            contentStyle={{ backgroundColor: "#1f2937", border: "1px solid #374151", borderRadius: 8, fontSize: 12 }}
-            labelStyle={{ color: "#9ca3af" }}
+            contentStyle={{ backgroundColor: "#ffffff", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 12, color: "#1f2937" }}
+            labelStyle={{ color: "#374151", fontWeight: 600 }}
+            itemStyle={{ color: "#374151" }}
             formatter={(value: number, name: string) => [value.toFixed(3), name]}
             labelFormatter={(_, payload) => {
               if (payload?.[0]?.payload) {
@@ -364,28 +434,37 @@ function WxScatterChart({
               return "";
             }}
           />
-          <Legend
-            verticalAlign="top" align="right" wrapperStyle={{ fontSize: 11, paddingBottom: 8 }}
-          />
+          {/* Year scatter series */}
           {years.map((year) => (
             <Scatter
               key={year}
               name={String(year)}
-              data={pointsByYear[year]}
+              data={hiddenSeries.has(String(year)) ? [] : pointsByYear[year]}
               fill={getYearColor(year)}
               r={4}
+              isAnimationActive={false}
+              legendType="none"
             />
           ))}
+          {/* Last 7 Days: larger dots, same color as current year, rendered last so on top */}
+          <Scatter
+            name="Last 7 Days"
+            data={hiddenSeries.has("last7") ? [] : recentPoints}
+            fill={getYearColor(currentYear)}
+            r={7}
+            isAnimationActive={false}
+            legendType="none"
+          />
         </ScatterChart>
       </ResponsiveContainer>
 
       {/* Recent points annotation */}
-      {recentPoints.length > 0 && (
+      {recentPoints.length > 0 && !hiddenSeries.has("last7") && (
         <div className="mt-2 rounded border border-gray-800 bg-gray-900/60 px-3 py-2">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Last 7 Days</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Last {lastDays} Days</span>
           <div className="mt-1 flex flex-wrap gap-3">
-            {recentPoints.map((pt, i) => (
-              <span key={i} className="text-[11px] text-gray-400">
+            {recentPoints.map((pt) => (
+              <span key={`${pt.gas_day}-${pt.year}`} className="text-[11px] text-gray-400">
                 <span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: getYearColor(pt.year) }} />
                 {formatGasDay(pt.gas_day)}: HDD={pt.x.toFixed(1)}, Spread={pt.y.toFixed(3)}
               </span>
@@ -395,7 +474,7 @@ function WxScatterChart({
       )}
     </div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /*  Main Component                                                     */
@@ -409,11 +488,12 @@ export default function WxCashBalmoTable() {
   const [selectedHub, setSelectedHub] = useState("hh");
   const [wxRegion, setWxRegion] = useState("conus");
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
-  const [lookbackYears, setLookbackYears] = useState(5);
+  const [lookbackYears, setLookbackYears] = useState(3);
+  const [lastDays, setLastDays] = useState(7);
 
   // Applied filters (null = nothing loaded yet)
   const [applied, setApplied] = useState<{
-    hub: string; wxRegion: string; month: number; lookbackYears: number;
+    hub: string; wxRegion: string; month: number; lookbackYears: number; lastDays: number;
   } | null>(null);
 
   // Data
@@ -433,6 +513,7 @@ export default function WxCashBalmoTable() {
     const key = `${month}-${startYear}`;
     if (cache.current.has(key)) {
       setRows(cache.current.get(key)!);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -453,11 +534,11 @@ export default function WxCashBalmoTable() {
   }, []);
 
   const handleApply = useCallback(() => {
-    const filters = { hub: selectedHub, wxRegion, month: selectedMonth, lookbackYears };
+    const filters = { hub: selectedHub, wxRegion, month: selectedMonth, lookbackYears, lastDays };
     setApplied(filters);
     const startYear = currentYear - lookbackYears;
     fetchData(filters.month, startYear);
-  }, [selectedHub, wxRegion, selectedMonth, lookbackYears, currentYear, fetchData]);
+  }, [selectedHub, wxRegion, selectedMonth, lookbackYears, lastDays, currentYear, fetchData]);
 
   const hubDef = applied ? HUBS.find((h) => h.key === applied.hub) : null;
   const hubLabel = hubDef?.label ?? applied?.hub ?? "";
@@ -471,10 +552,12 @@ export default function WxCashBalmoTable() {
         wxRegion={wxRegion}
         selectedMonth={selectedMonth}
         lookbackYears={lookbackYears}
+        lastDays={lastDays}
         onHubChange={handleHubChange}
         onWxRegionChange={setWxRegion}
         onMonthChange={setSelectedMonth}
         onLookbackChange={setLookbackYears}
+        onLastDaysChange={setLastDays}
         onApply={handleApply}
         loading={loading}
       />
@@ -513,18 +596,19 @@ export default function WxCashBalmoTable() {
         <>
           <div className="flex h-[calc(100vh-320px)] overflow-hidden rounded-lg border border-gray-800">
             {/* Table panel */}
-            <div className="flex-1 overflow-auto">
+            <div className="w-[660px] shrink-0 overflow-auto">
               <DataTable rows={rows} hubKey={applied.hub} wxRegion={applied.wxRegion} />
             </div>
 
             {/* Chart panel */}
-            <div className="w-[480px] shrink-0 overflow-auto border-l border-gray-800 p-3">
+            <div className="flex-1 overflow-auto border-l border-gray-800 p-3">
               <WxScatterChart
                 rows={rows}
                 hubKey={applied.hub}
                 wxRegion={applied.wxRegion}
                 hubLabel={hubLabel}
                 monthLabel={monthLabel}
+                lastDays={applied.lastDays}
               />
             </div>
           </div>

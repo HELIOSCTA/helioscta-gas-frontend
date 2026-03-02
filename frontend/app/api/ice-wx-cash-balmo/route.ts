@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
+const RESPONSE_TTL_MS = 5 * 60 * 1000;
+
+type CacheEntry = {
+  expiresAt: number;
+  rows: unknown[];
+};
+
+const routeCache = new Map<string, CacheEntry>();
 
 /**
  * Accepts ?month=3&startYear=2020
@@ -195,16 +203,35 @@ export async function GET(request: Request) {
 
   const startYearRaw = parseInt(searchParams.get("startYear") || "2020", 10);
   const startYear = startYearRaw >= 2015 && startYearRaw <= 2030 ? startYearRaw : 2020;
+  const cacheKey = `${month}:${startYear}`;
+
+  const cached = routeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return NextResponse.json(
+      { rows: cached.rows, month, startYear },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60",
+          "X-Route-Cache": "HIT",
+        },
+      }
+    );
+  }
 
   try {
     const sql = buildSQL(month, startYear);
     const result = await query(sql, []);
+    routeCache.set(cacheKey, {
+      rows: result.rows,
+      expiresAt: Date.now() + RESPONSE_TTL_MS,
+    });
 
     return NextResponse.json(
       { rows: result.rows, month, startYear },
       {
         headers: {
           "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60",
+          "X-Route-Cache": "MISS",
         },
       }
     );

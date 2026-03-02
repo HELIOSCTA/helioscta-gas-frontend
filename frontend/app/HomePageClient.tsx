@@ -1,14 +1,33 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Sidebar, { type ActiveSection } from "@/components/Sidebar";
 import GenscapeNomsTable from "@/components/gas/GenscapeNomsTable";
 import KrsWatchlistTable from "@/components/gas/KrsWatchlistTable";
-import CashBalmoTable from "@/components/gas/CashBalmoTable";
-import WxCashBalmoTable from "@/components/gas/WxCashBalmoTable";
 import WatchlistEditor from "@/components/gas/WatchlistEditor";
 import type { Watchlist } from "@/lib/watchlists";
 import { WORKBENCH_V2_ENABLED } from "@/lib/feature-flags";
+
+const CashBalmoTable = dynamic(() => import("@/components/gas/CashBalmoTable"), {
+  loading: () => <p className="text-sm text-gray-500">Loading cash-balmo view...</p>,
+  ssr: false,
+});
+
+const WxCashBalmoTable = dynamic(() => import("@/components/gas/WxCashBalmoTable"), {
+  loading: () => <p className="text-sm text-gray-500">Loading weather-adjusted view...</p>,
+  ssr: false,
+});
+
+const CashPricingMatrix = dynamic(() => import("@/components/gas/CashPricingMatrix"), {
+  loading: () => <p className="text-sm text-gray-500">Loading cash pricing matrix...</p>,
+  ssr: false,
+});
+
+const CashAndNomsTable = dynamic(() => import("@/components/gas/CashAndNomsTable"), {
+  loading: () => <p className="text-sm text-gray-500">Loading cash and noms...</p>,
+  ssr: false,
+});
 
 const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; footer: string }> = {
   home: {
@@ -22,9 +41,9 @@ const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; foo
     footer: "Workbench | Analysis Packs",
   },
   "genscape-noms": {
-    title: "Daily Noms",
+    title: "Historical Noms",
     subtitle: "Historical nominations data from Genscape across all pipelines.",
-    footer: "Daily Noms | Source: Azure SQL",
+    footer: "Historical Noms | Source: Azure SQL",
   },
   watchlists: {
     title: "Watchlists",
@@ -45,6 +64,16 @@ const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; foo
     title: "Manage Watchlists",
     subtitle: "Create, edit, and delete watchlists for tracking Genscape nominations.",
     footer: "Watchlists | Source: Azure PostgreSQL",
+  },
+  "cash-and-noms": {
+    title: "Noms v Cash",
+    subtitle: "ICE cash prices alongside Genscape nominations for watchlist locations.",
+    footer: "Noms v Cash | Source: ICE + Azure SQL",
+  },
+  "cash-pricing-matrix": {
+    title: "Cash Pricing Matrix",
+    subtitle: "ICE cash pricing matrix across US natural gas hubs.",
+    footer: "ICE Cash Prices | Source: ICE / Azure PostgreSQL",
   },
 };
 
@@ -202,6 +231,14 @@ const HOME_CARDS: HomeCard[] = [
     accentColor: "cyan",
   },
   {
+    id: "cash-pricing-matrix",
+    title: "Cash Pricing Matrix",
+    description: "Daily cash prices for US natural gas hubs relative to NYMEX HH prompt-month futures.",
+    source: "ICE / Azure PostgreSQL",
+    iconPath: "M3.375 19.5h17.25m-17.25 0A1.125 1.125 0 012.25 18.375V5.625A1.125 1.125 0 013.375 4.5h17.25A1.125 1.125 0 0121.75 5.625v12.75A1.125 1.125 0 0120.625 19.5m-17.25 0h17.25M6 9h.008v.008H6V9zm0 3h.008v.008H6V12zm0 3h.008v.008H6V15zm3-6h.008v.008H9V9zm0 3h.008v.008H9V12zm0 3h.008v.008H9V15zm3-6h.008v.008H12V9zm0 3h.008v.008H12V12zm0 3h.008v.008H12V15zm3-6h.008v.008H15V9zm0 3h.008v.008H15V12zm0 3h.008v.008H15V15zm3-6h.008v.008H18V9zm0 3h.008v.008H18V12zm0 3h.008v.008H18V15z",
+    accentColor: "cyan",
+  },
+  {
     id: "wx-cash-balmo",
     title: "Wx Adj Cash-Balmo",
     description: "Weather-adjusted cash vs Balmo spreads with regional degree-day departures from normal.",
@@ -319,7 +356,7 @@ export default function HomePageClient() {
             <p className="mt-2 text-sm text-gray-500">{meta.subtitle}</p>
           </div>
           {activeSection === "home" && (
-            <HomeCards onNavigate={setActiveSection} />
+            <div />
           )}
           {activeSection === "genscape-noms" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
@@ -368,9 +405,19 @@ export default function HomePageClient() {
               <CashBalmoTable />
             </div>
           )}
+          {activeSection === "cash-pricing-matrix" && (
+            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+              <CashPricingMatrix />
+            </div>
+          )}
           {activeSection === "wx-cash-balmo" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
               <WxCashBalmoTable />
+            </div>
+          )}
+          {activeSection === "cash-and-noms" && (
+            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+              <CashAndNomsTable watchlists={watchlists} watchlistsLoading={watchlistsLoading} />
             </div>
           )}
           {activeSection === "workbench" && WORKBENCH_V2_ENABLED && (
