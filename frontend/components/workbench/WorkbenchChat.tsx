@@ -1,11 +1,25 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import AgentSelector from "./AgentSelector";
+import ConversationList from "./ConversationList";
+import CostEstimateBar from "./CostEstimateBar";
 import ContextChips from "./ContextChips";
+
+interface FileContext {
+  fileId: number;
+  fileName?: string;
+  fileType?: string;
+  sizeBytes?: number | null;
+}
 
 interface WorkbenchChatProps {
   workspaceId: string;
-  selectedFileIds: number[];
+  selectedFiles: FileContext[];
+  selectedAgentId: number | null;
+  onSelectAgent: (agentId: number) => void;
+  conversationId: number | null;
+  onConversationChange: (conversationId: number | null) => void;
 }
 
 interface ChatMessage {
@@ -14,14 +28,21 @@ interface ChatMessage {
   content: string;
 }
 
-export default function WorkbenchChat({ workspaceId, selectedFileIds }: WorkbenchChatProps) {
+export default function WorkbenchChat({
+  workspaceId,
+  selectedFiles,
+  selectedAgentId,
+  onSelectAgent,
+  conversationId,
+  onConversationChange,
+}: WorkbenchChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [contextFileIds, setContextFileIds] = useState<number[]>(selectedFileIds);
+  const [contextFiles, setContextFiles] = useState<FileContext[]>(selectedFiles);
 
-  // Update context when selectedFileIds changes externally
-  // (we let the user dismiss chips independently)
+  // Sync context files when selectedFiles changes
+  // (user can dismiss chips independently)
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || loading) return;
@@ -36,37 +57,37 @@ export default function WorkbenchChat({ workspaceId, selectedFileIds }: Workbenc
     setLoading(true);
 
     try {
-      // For now, use a simple fetch to the agent chat API
-      // Phase D will enhance this with workspace context injection
-      const res = await fetch("/api/agents", { method: "GET" });
-      const data = await res.json();
-      const agent = data.agents?.[0];
-
-      if (!agent) {
+      const agentId = selectedAgentId;
+      if (!agentId) {
         setMessages((prev) => [
           ...prev,
-          { id: `err-${Date.now()}`, role: "assistant", content: "No agent configured. Please set up an agent first." },
+          { id: `err-${Date.now()}`, role: "assistant", content: "No agent selected. Please select an agent first." },
         ]);
         return;
       }
 
-      // Create or use existing conversation — simplified for workbench
-      const convRes = await fetch(`/api/agents/${agent.agent_id}/conversations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: `Workbench: ${workspaceId}` }),
-      });
-      const convData = await convRes.json();
+      // Create conversation if none exists, otherwise reuse
+      let convId = conversationId;
+      if (!convId) {
+        const convRes = await fetch(`/api/agents/${agentId}/conversations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: `Workbench: ${workspaceId}` }),
+        });
+        const convData = await convRes.json();
+        convId = convData.conversation_id;
+        if (convId) onConversationChange(convId);
+      }
 
-      const chatRes = await fetch(`/api/agents/${agent.agent_id}/chat`, {
+      const chatRes = await fetch(`/api/agents/${agentId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [{ id: userMsg.id, role: "user", parts: [{ type: "text", text: input }] }],
-          conversationId: convData.conversation_id,
+          conversationId: convId,
           workspaceContext: {
             workspaceId,
-            fileIds: contextFileIds,
+            fileIds: contextFiles.map((f) => f.fileId),
           },
         }),
       });
@@ -108,20 +129,56 @@ export default function WorkbenchChat({ workspaceId, selectedFileIds }: Workbenc
     } finally {
       setLoading(false);
     }
-  }, [input, loading, workspaceId, contextFileIds]);
+  }, [input, loading, workspaceId, contextFiles, selectedAgentId, conversationId, onConversationChange]);
+
+  const handleLoadConversation = useCallback(async (convId: number) => {
+    if (!selectedAgentId) return;
+    onConversationChange(convId);
+    try {
+      const res = await fetch(`/api/agents/${selectedAgentId}/conversations/${convId}/messages`);
+      const data = await res.json();
+      const loaded = (data.messages ?? []).map((m: { message_id: number; role: string; content: string }) => ({
+        id: `msg-${m.message_id}`,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+      setMessages(loaded);
+    } catch (err) {
+      console.error("Failed to load conversation:", err);
+    }
+  }, [selectedAgentId, onConversationChange]);
+
+  const handleNewConversation = useCallback(() => {
+    onConversationChange(null);
+    setMessages([]);
+  }, [onConversationChange]);
+
+  const inputTokenEstimate = Math.ceil(input.length / 4);
 
   return (
     <div className="flex h-full flex-col">
+      {/* Header with agent selector */}
       <div className="border-b border-gray-800 px-3 py-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-          Agent Chat
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+            Agent Chat
+          </p>
+          <AgentSelector selectedAgentId={selectedAgentId} onSelect={onSelectAgent} />
+        </div>
       </div>
+
+      {/* Conversation list */}
+      <ConversationList
+        agentId={selectedAgentId}
+        activeConversationId={conversationId}
+        onSelect={handleLoadConversation}
+        onNewConversation={handleNewConversation}
+      />
 
       {/* Context chips */}
       <ContextChips
-        fileIds={contextFileIds}
-        onRemoveFile={(id) => setContextFileIds((prev) => prev.filter((f) => f !== id))}
+        files={contextFiles}
+        onRemoveFile={(id) => setContextFiles((prev) => prev.filter((f) => f.fileId !== id))}
       />
 
       {/* Messages */}
@@ -150,11 +207,14 @@ export default function WorkbenchChat({ workspaceId, selectedFileIds }: Workbenc
         )}
       </div>
 
+      {/* Cost estimate bar */}
+      <CostEstimateBar inputTokenEstimate={inputTokenEstimate} />
+
       {/* Input */}
       <div className="border-t border-gray-800 px-3 py-2">
         {input.trim() && (
           <p className="mb-1 text-[10px] text-gray-600">
-            ~{Math.ceil(input.length / 4)} input tokens est.
+            ~{inputTokenEstimate} input tokens est.
           </p>
         )}
         <div className="flex gap-2">

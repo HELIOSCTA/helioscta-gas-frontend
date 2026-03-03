@@ -111,6 +111,14 @@ export default function FolderExplorer({
   const [newFileName, setNewFileName] = useState("");
   const uploadRef = useRef<HTMLInputElement>(null);
   const [uploadFolder, setUploadFolder] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filter files by search
+  const filteredFiles = useMemo(() => {
+    if (!searchQuery.trim()) return files;
+    const q = searchQuery.toLowerCase();
+    return files.filter((f) => f.file_name.toLowerCase().includes(q));
+  }, [files, searchQuery]);
 
   // Group files by folder
   const grouped = useMemo(() => {
@@ -120,7 +128,7 @@ export default function FolderExplorer({
     }
     const other: WorkspaceFile[] = [];
 
-    for (const file of files) {
+    for (const file of filteredFiles) {
       const parent = (file.parent_path || "").replace(/^\/|\/$/g, "");
       const topFolder = parent.split("/")[0];
       if (topFolder && (FOLDERS as readonly string[]).includes(topFolder)) {
@@ -130,7 +138,7 @@ export default function FolderExplorer({
       }
     }
     return { folders: map, other };
-  }, [files]);
+  }, [filteredFiles]);
 
   const toggleFolder = useCallback((folder: string) => {
     setExpanded((prev) => {
@@ -169,6 +177,12 @@ export default function FolderExplorer({
         <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
           Explorer
         </p>
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Filter files..."
+          className="mt-1.5 w-full rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto py-1">

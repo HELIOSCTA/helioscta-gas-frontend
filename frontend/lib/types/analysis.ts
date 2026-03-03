@@ -22,6 +22,15 @@ export const PACK_STEPS: StepName[] = [
   "evidence_link",
 ];
 
+export const STEP_LABELS: Record<StepName, string> = {
+  load_inputs: "Load Inputs",
+  execute_sql: "Execute SQL",
+  compute_metrics: "Compute Metrics",
+  build_context: "Build Context",
+  generate_report: "Generate Report",
+  evidence_link: "Evidence Links",
+};
+
 export interface AnalysisPack {
   pack_id: number;
   workspace_id: number;
