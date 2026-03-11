@@ -7,7 +7,6 @@ import GenscapeNomsTable from "@/components/gas/GenscapeNomsTable";
 import KrsWatchlistTable from "@/components/gas/KrsWatchlistTable";
 import WatchlistEditor from "@/components/gas/WatchlistEditor";
 import type { Watchlist } from "@/lib/watchlists";
-import { WORKBENCH_V2_ENABLED, DAILY_REPORTS_ENABLED } from "@/lib/feature-flags";
 
 const CashBalmoTable = dynamic(() => import("@/components/gas/CashBalmoTable"), {
   loading: () => <p className="text-sm text-gray-500">Loading cash-balmo view...</p>,
@@ -32,13 +31,8 @@ const CashAndNomsTable = dynamic(() => import("@/components/gas/CashAndNomsTable
 const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; footer: string }> = {
   home: {
     title: "Dashboard",
-    subtitle: "Overview of all gas market data feeds and analysis tools.",
+    subtitle: "Overview of all gas market data feeds.",
     footer: "Helios CTA | Gas Markets",
-  },
-  workbench: {
-    title: "Analysis Workbench",
-    subtitle: "Unified analysis environment with step pipelines, SQL execution, and AI-assisted reporting.",
-    footer: "Workbench | Analysis Packs",
   },
   "genscape-noms": {
     title: "Historical Noms",
@@ -75,131 +69,7 @@ const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; foo
     subtitle: "ICE cash pricing matrix across US natural gas hubs.",
     footer: "ICE Cash Prices | Source: ICE / Azure PostgreSQL",
   },
-  "daily-reports": {
-    title: "Daily Reports",
-    subtitle: "AI-generated daily gas market reports with structured analysis and trade signals.",
-    footer: "Reports | AI Agent",
-  },
 };
-
-interface WorkspaceOption {
-  workspace_id: number;
-  slug: string;
-  display_name: string;
-  agent_id: string | null;
-}
-
-function WorkbenchLauncher() {
-  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showNewWs, setShowNewWs] = useState(false);
-  const [newWsName, setNewWsName] = useState("");
-  const [creating, setCreating] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/workspaces")
-      .then((r) => r.json())
-      .then((data) =>
-        setWorkspaces((data.workspaces ?? []).filter((ws: WorkspaceOption) => !ws.agent_id))
-      )
-      .catch((err) => console.error("Failed to fetch workspaces:", err))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const handleCreateWorkspace = async () => {
-    const name = newWsName.trim();
-    if (!name || creating) return;
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
-    setCreating(true);
-    try {
-      const res = await fetch("/api/workspaces", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, displayName: name, workspaceType: "project" }),
-      });
-      const data = await res.json();
-      // Navigate to the new workspace
-      window.location.href = `/workbench/${data.workspace_id}`;
-    } catch (err) {
-      console.error("Failed to create workspace:", err);
-      setCreating(false);
-    }
-  };
-
-  if (loading) {
-    return <p className="text-sm text-gray-500">Loading workspaces...</p>;
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-400">Select a workspace to open in the workbench:</p>
-        {!showNewWs ? (
-          <button
-            onClick={() => setShowNewWs(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-dashed border-gray-700 bg-gray-900/30 px-3 py-1.5 text-gray-500 transition-colors hover:border-gray-500 hover:bg-gray-800/40 hover:text-gray-300"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            <span className="text-xs font-medium">New Workspace</span>
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <input
-              autoFocus
-              value={newWsName}
-              onChange={(e) => setNewWsName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreateWorkspace();
-                if (e.key === "Escape") {
-                  setShowNewWs(false);
-                  setNewWsName("");
-                }
-              }}
-              placeholder="Workspace name"
-              className="rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
-            />
-            <button
-              onClick={handleCreateWorkspace}
-              disabled={!newWsName.trim() || creating}
-              className="rounded bg-cyan-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-cyan-600 disabled:opacity-50"
-            >
-              {creating ? "Creating..." : "Create"}
-            </button>
-            <button
-              onClick={() => {
-                setShowNewWs(false);
-                setNewWsName("");
-              }}
-              className="rounded px-2 py-1.5 text-xs text-gray-500 hover:text-gray-300"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {workspaces.map((ws) => (
-          <a
-            key={ws.workspace_id}
-            href={`/workbench/${ws.workspace_id}`}
-            className="rounded-lg border border-gray-800 bg-gray-900/60 p-4 transition-colors hover:border-gray-600 hover:bg-gray-800/60"
-          >
-            <p className="text-sm font-medium text-gray-200">{ws.display_name}</p>
-            <p className="mt-1 text-[10px] text-gray-500">{ws.slug}</p>
-          </a>
-        ))}
-      </div>
-      {workspaces.length === 0 && (
-        <p className="text-sm text-gray-600">
-          No workspaces found. Click &quot;New Workspace&quot; to create one.
-        </p>
-      )}
-    </div>
-  );
-}
 
 interface HomeCard {
   id: ActiveSection;
@@ -207,7 +77,7 @@ interface HomeCard {
   description: string;
   source: string;
   iconPath: string;
-  accentColor: string; // tailwind color token, e.g. "purple"
+  accentColor: string;
 }
 
 const HOME_CARDS: HomeCard[] = [
@@ -251,22 +121,6 @@ const HOME_CARDS: HomeCard[] = [
     iconPath: "M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z",
     accentColor: "cyan",
   },
-  {
-    id: "workbench",
-    title: "Analysis Workbench",
-    description: "Unified analysis environment with step pipelines, SQL execution, and AI-assisted reporting.",
-    source: "Azure PostgreSQL",
-    iconPath: "M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6",
-    accentColor: "amber",
-  },
-  {
-    id: "daily-reports",
-    title: "Daily Reports",
-    description: "AI-generated daily gas market reports with structured analysis and trade signals.",
-    source: "AI Agent + PostgreSQL",
-    iconPath: "M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z",
-    accentColor: "amber",
-  },
 ];
 
 const ACCENT_CLASSES: Record<string, { bg: string; icon: string; border: string; shadow: string }> = {
@@ -282,35 +136,17 @@ const ACCENT_CLASSES: Record<string, { bg: string; icon: string; border: string;
     border: "hover:border-cyan-500/40",
     shadow: "hover:shadow-cyan-500/5",
   },
-  amber: {
-    bg: "bg-amber-500/10",
-    icon: "text-amber-400",
-    border: "hover:border-amber-500/40",
-    shadow: "hover:shadow-amber-500/5",
-  },
 };
 
 function HomeCards({ onNavigate }: { onNavigate: (section: ActiveSection) => void }) {
-  const cards = HOME_CARDS.filter((c) => {
-    if (c.id === "workbench" && !WORKBENCH_V2_ENABLED) return false;
-    if (c.id === "daily-reports" && !DAILY_REPORTS_ENABLED) return false;
-    return true;
-  });
-
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {cards.map((card) => {
+      {HOME_CARDS.map((card) => {
         const accent = ACCENT_CLASSES[card.accentColor];
         return (
           <button
             key={card.id}
-            onClick={() => {
-              if (card.id === "daily-reports") {
-                window.location.href = "/reports";
-              } else {
-                onNavigate(card.id);
-              }
-            }}
+            onClick={() => onNavigate(card.id)}
             className={`group flex flex-col rounded-xl border border-gray-800 bg-gray-900/60 p-5 text-left transition-all hover:shadow-lg ${accent.border} ${accent.shadow}`}
           >
             <div className="flex items-start justify-between">
@@ -376,7 +212,7 @@ export default function HomePageClient() {
             <p className="mt-2 text-sm text-gray-500">{meta.subtitle}</p>
           </div>
           {activeSection === "home" && (
-            <div />
+            <HomeCards onNavigate={setActiveSection} />
           )}
           {activeSection === "genscape-noms" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
@@ -438,11 +274,6 @@ export default function HomePageClient() {
           {activeSection === "cash-and-noms" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
               <CashAndNomsTable watchlists={watchlists} watchlistsLoading={watchlistsLoading} />
-            </div>
-          )}
-          {activeSection === "workbench" && WORKBENCH_V2_ENABLED && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
-              <WorkbenchLauncher />
             </div>
           )}
           <p className="mt-6 text-center text-xs text-gray-600">{meta.footer}</p>

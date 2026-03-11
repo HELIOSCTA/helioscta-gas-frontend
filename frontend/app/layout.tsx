@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Gas EBBs | Helios CTA",
-  description: "Gas pipeline critical notices from EBB portals",
+  title: "Gas Markets | Helios CTA",
+  description: "Genscape nominations and ICE cash prices for US natural gas markets",
 };
 
 export default function RootLayout({
