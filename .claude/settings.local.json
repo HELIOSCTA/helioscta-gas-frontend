@@ -18,7 +18,11 @@
       "mcp__8534f506-5cbf-4257-899b-67314d5ca556__notion-update-data-source",
       "WebFetch(domain:pipeline2.kindermorgan.com)",
       "WebFetch(domain:www.naesb.org)",
-      "mcp__postgres__query"
+      "mcp__postgres__query",
+      "WebSearch",
+      "WebFetch(domain:ai-sdk.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:vercel.com)"
     ],
     "deny": []
   }

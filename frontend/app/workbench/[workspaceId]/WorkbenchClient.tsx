@@ -8,20 +8,10 @@ import CsvPreview from "@/components/workspace/CsvPreview";
 import ImageViewer from "@/components/workspace/ImageViewer";
 import FolderExplorer from "@/components/workbench/FolderExplorer";
 import WorkbenchChat from "@/components/workbench/WorkbenchChat";
-import PackSelector from "@/components/workbench/PackSelector";
-import RunBar from "@/components/workbench/RunBar";
-import RunHistory from "@/components/workbench/RunHistory";
-import ReportPreview from "@/components/workbench/ReportPreview";
-import EvidencePanel from "@/components/workbench/EvidencePanel";
 import SqlResultsPanel from "@/components/workbench/SqlResultsPanel";
-import ArtifactHub from "@/components/workbench/ArtifactHub";
-import WorkspaceOnboarding from "@/components/workbench/WorkspaceOnboarding";
-import RunDiffPanel from "@/components/workbench/RunDiffPanel";
-import { useRunPoller } from "@/lib/hooks/useRunPoller";
-import { WORKSPACE_ONBOARDING_ENABLED } from "@/lib/feature-flags";
 
 type ViewMode = "edit" | "preview";
-type CenterTab = "files" | "report" | "sql" | "evidence" | "artifacts";
+type CenterTab = "files" | "sql";
 
 interface WorkbenchClientProps {
   workspaceId: string;
@@ -35,24 +25,10 @@ export default function WorkbenchClient({ workspaceId }: WorkbenchClientProps) {
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Phase 1+2: Lifted state
   const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
   const [conversationId, setConversationId] = useState<number | null>(null);
-  const [activePackId, setActivePackId] = useState<number | null>(null);
-  const [activeRunId, setActiveRunId] = useState<number | null>(null);
 
-  // Phase 3: Center panel tabs + overlays
   const [centerTab, setCenterTab] = useState<CenterTab>("files");
-  const [evidenceSectionFilter, setEvidenceSectionFilter] = useState<string | null>(null);
-  const [showEvidence, setShowEvidence] = useState(false);
-  const [showArtifacts, setShowArtifacts] = useState(false);
-
-  // Phase 4: Onboarding + run diff
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [diffRuns, setDiffRuns] = useState<[number, number] | null>(null);
-
-  const { run } = useRunPoller(activeRunId);
-  const runCompleted = run?.status === "completed" || run?.status === "finalized";
 
   const currentFileRef = useRef<{ fileId: number; wsId: string } | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,9 +40,6 @@ export default function WorkbenchClient({ workspaceId }: WorkbenchClientProps) {
       .then((data) => {
         const fileList = data.files ?? [];
         setFiles(fileList);
-        if (fileList.length === 0 && WORKSPACE_ONBOARDING_ENABLED) {
-          setShowOnboarding(true);
-        }
       })
       .catch((err) => console.error("Failed to fetch files:", err));
   }, [workspaceId]);
@@ -211,19 +184,6 @@ export default function WorkbenchClient({ workspaceId }: WorkbenchClientProps) {
     }
   }, [selectedFile, fileContent, workspaceId]);
 
-  // Navigate to a file by ID
-  const handleNavigateToFile = useCallback(
-    (fileId: number) => {
-      const file = files.find((f) => f.file_id === fileId);
-      if (file) {
-        setSelectedFile(file);
-        setCenterTab("files");
-        setViewMode("edit");
-      }
-    },
-    [files]
-  );
-
   // Build file context for chat
   const selectedFileContexts = selectedFile
     ? [{ fileId: selectedFile.file_id, fileName: selectedFile.file_name, fileType: selectedFile.file_type, sizeBytes: selectedFile.size_bytes }]
@@ -272,61 +232,17 @@ export default function WorkbenchClient({ workspaceId }: WorkbenchClientProps) {
   // Center panel content based on active tab
   const renderCenterContent = () => {
     switch (centerTab) {
-      case "report":
-        return activeRunId ? (
-          <ReportPreview
-            runId={activeRunId}
-            onEvidenceClick={(sectionKey) => {
-              setEvidenceSectionFilter(sectionKey);
-              setShowEvidence(true);
-            }}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-gray-600">No active run selected</p>
-          </div>
-        );
       case "sql":
         return <SqlResultsPanel workspaceId={workspaceId} />;
-      case "evidence":
-        return activeRunId ? (
-          <EvidencePanel
-            runId={activeRunId}
-            onSqlRunClick={() => setCenterTab("sql")}
-            onFileClick={handleNavigateToFile}
-            onClose={() => setCenterTab("files")}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-gray-600">No active run selected</p>
-          </div>
-        );
-      case "artifacts":
-        return activeRunId ? (
-          <ArtifactHub
-            runId={activeRunId}
-            onClose={() => setCenterTab("files")}
-            onFileClick={handleNavigateToFile}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-gray-600">No active run selected</p>
-          </div>
-        );
       default:
         return renderFileContent();
     }
   };
 
-  const TABS: { key: CenterTab; label: string; requiresRun?: boolean }[] = [
+  const TABS: { key: CenterTab; label: string }[] = [
     { key: "files", label: "Files" },
-    { key: "report", label: "Report", requiresRun: true },
     { key: "sql", label: "SQL Results" },
-    { key: "evidence", label: "Evidence", requiresRun: true },
-    { key: "artifacts", label: "Artifacts", requiresRun: true },
   ];
-
-  const visibleTabs = TABS.filter((t) => !t.requiresRun || (activeRunId && runCompleted));
 
   return (
     <div className="flex h-screen flex-col bg-[#0f1117] text-gray-100">
@@ -342,21 +258,8 @@ export default function WorkbenchClient({ workspaceId }: WorkbenchClientProps) {
           <span className="text-xs font-medium text-gray-300">
             Workspace {workspaceId}
           </span>
-          {/* Pack Selector */}
-          <PackSelector
-            workspaceId={workspaceId}
-            activePackId={activePackId}
-            onSelect={setActivePackId}
-          />
         </div>
         <div className="flex items-center gap-2">
-          {/* Run History */}
-          <RunHistory
-            packId={activePackId}
-            activeRunId={activeRunId}
-            onSelectRun={setActiveRunId}
-            onCompareRuns={(a, b) => setDiffRuns([a, b])}
-          />
           <button
             onClick={() => setRightPanelOpen((v) => !v)}
             className="rounded px-3 py-1 text-xs text-gray-500 hover:bg-gray-800/40 hover:text-gray-300"
@@ -365,13 +268,6 @@ export default function WorkbenchClient({ workspaceId }: WorkbenchClientProps) {
           </button>
         </div>
       </div>
-
-      {/* Run Bar */}
-      <RunBar
-        activePackId={activePackId}
-        activeRunId={activeRunId}
-        onRunCreated={setActiveRunId}
-      />
 
       {/* Main three-panel layout */}
       <div className="flex flex-1 overflow-hidden">
@@ -397,7 +293,7 @@ export default function WorkbenchClient({ workspaceId }: WorkbenchClientProps) {
           <div className="flex items-center justify-between border-b border-gray-800 bg-[#0b0d14] px-4 py-0">
             {/* Tabs */}
             <div className="flex items-center gap-0">
-              {visibleTabs.map((tab) => (
+              {TABS.map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setCenterTab(tab.key)}
@@ -461,46 +357,9 @@ export default function WorkbenchClient({ workspaceId }: WorkbenchClientProps) {
 
           {/* Content area */}
           <div className="flex-1 overflow-auto">
-            {showOnboarding ? (
-              <WorkspaceOnboarding
-                workspaceId={workspaceId}
-                onComplete={() => { setShowOnboarding(false); refreshFiles(); }}
-              />
-            ) : diffRuns ? (
-              <RunDiffPanel
-                runIdA={diffRuns[0]}
-                runIdB={diffRuns[1]}
-                onClose={() => setDiffRuns(null)}
-              />
-            ) : (
-              renderCenterContent()
-            )}
+            {renderCenterContent()}
           </div>
         </div>
-
-        {/* Evidence slide-out overlay */}
-        {showEvidence && activeRunId && (
-          <div className="w-[320px] flex-shrink-0 border-l border-gray-800">
-            <EvidencePanel
-              runId={activeRunId}
-              filterSectionKey={evidenceSectionFilter}
-              onSqlRunClick={() => setCenterTab("sql")}
-              onFileClick={handleNavigateToFile}
-              onClose={() => { setShowEvidence(false); setEvidenceSectionFilter(null); }}
-            />
-          </div>
-        )}
-
-        {/* Artifacts slide-out overlay */}
-        {showArtifacts && activeRunId && (
-          <div className="w-[320px] flex-shrink-0 border-l border-gray-800">
-            <ArtifactHub
-              runId={activeRunId}
-              onClose={() => setShowArtifacts(false)}
-              onFileClick={handleNavigateToFile}
-            />
-          </div>
-        )}
 
         {/* RIGHT PANEL — Agent Chat (350px) */}
         {rightPanelOpen && (
