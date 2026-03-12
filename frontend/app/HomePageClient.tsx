@@ -1,38 +1,24 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Sidebar, { type ActiveSection } from "@/components/Sidebar";
 import GenscapeNomsTable from "@/components/gas/GenscapeNomsTable";
 import KrsWatchlistTable from "@/components/gas/KrsWatchlistTable";
 import WatchlistEditor from "@/components/gas/WatchlistEditor";
 import type { Watchlist } from "@/lib/watchlists";
-
-const CashBalmoTable = dynamic(() => import("@/components/gas/CashBalmoTable"), {
-  loading: () => <p className="text-sm text-gray-500">Loading cash-balmo view...</p>,
-  ssr: false,
-});
-
-const WxCashBalmoTable = dynamic(() => import("@/components/gas/WxCashBalmoTable"), {
-  loading: () => <p className="text-sm text-gray-500">Loading weather-adjusted view...</p>,
-  ssr: false,
-});
+import { GENSCAPE_ENABLED, ICE_CASH_ENABLED } from "@/lib/feature-flags";
 
 const CashPricingMatrix = dynamic(() => import("@/components/gas/CashPricingMatrix"), {
   loading: () => <p className="text-sm text-gray-500">Loading cash pricing matrix...</p>,
   ssr: false,
 });
 
-const CashAndNomsTable = dynamic(() => import("@/components/gas/CashAndNomsTable"), {
-  loading: () => <p className="text-sm text-gray-500">Loading cash and noms...</p>,
-  ssr: false,
-});
-
 const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; footer: string }> = {
   home: {
     title: "Dashboard",
-    subtitle: "Overview of all gas market data feeds.",
-    footer: "Helios CTA | Gas Markets",
+    subtitle: "Genscape nominations and ICE cash prices for US natural gas markets.",
+    footer: "Helios CTA | Genscape + ICE Cash Prices",
   },
   "genscape-noms": {
     title: "Historical Noms",
@@ -44,35 +30,22 @@ const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; foo
     subtitle: "Tracked nominations for key location role IDs across monitored pipelines.",
     footer: "Watchlists | Source: Azure SQL",
   },
-  "cash-balmo": {
-    title: "ICE Cash-Balmo",
-    subtitle: "Next-day gas cash prices vs balance-of-month (Balmo) across key US natural gas hubs.",
-    footer: "ICE Cash Prices | Source: ICE / Azure PostgreSQL",
-  },
-  "wx-cash-balmo": {
-    title: "Wx Adj Cash-Balmo",
-    subtitle: "Weather-adjusted cash vs Balmo spreads with regional degree-day departures from normal.",
-    footer: "ICE Cash Prices | Source: ICE + WSI WDD / Azure PostgreSQL",
-  },
   "watchlist-editor": {
     title: "Manage Watchlists",
     subtitle: "Create, edit, and delete watchlists for tracking Genscape nominations.",
     footer: "Watchlists | Source: Azure PostgreSQL",
   },
-  "cash-and-noms": {
-    title: "Noms v Cash",
-    subtitle: "ICE cash prices alongside Genscape nominations for watchlist locations.",
-    footer: "Noms v Cash | Source: ICE + Azure SQL",
-  },
   "cash-pricing-matrix": {
     title: "Cash Pricing Matrix",
-    subtitle: "ICE cash pricing matrix across US natural gas hubs.",
+    subtitle: "Current-month and seasonal NYMEX cash-vs-Henry-Hub futures matrix across key US gas hubs.",
     footer: "ICE Cash Prices | Source: ICE / Azure PostgreSQL",
   },
 };
 
+type FeatureSection = Exclude<ActiveSection, "home">;
+
 interface HomeCard {
-  id: ActiveSection;
+  id: FeatureSection;
   title: string;
   description: string;
   source: string;
@@ -98,32 +71,19 @@ const HOME_CARDS: HomeCard[] = [
     accentColor: "purple",
   },
   {
-    id: "cash-balmo",
-    title: "ICE Cash-Balmo",
-    description: "Next-day gas cash prices vs balance-of-month (Balmo) across key US natural gas hubs.",
-    source: "ICE / Azure PostgreSQL",
-    iconPath: "M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-    accentColor: "cyan",
-  },
-  {
     id: "cash-pricing-matrix",
     title: "Cash Pricing Matrix",
-    description: "Daily cash prices for US natural gas hubs relative to NYMEX HH prompt-month futures.",
+    description: "NYMEX-style current-month and seasonal cash matrix relative to Henry Hub futures.",
     source: "ICE / Azure PostgreSQL",
     iconPath: "M3.375 19.5h17.25m-17.25 0A1.125 1.125 0 012.25 18.375V5.625A1.125 1.125 0 013.375 4.5h17.25A1.125 1.125 0 0121.75 5.625v12.75A1.125 1.125 0 0120.625 19.5m-17.25 0h17.25M6 9h.008v.008H6V9zm0 3h.008v.008H6V12zm0 3h.008v.008H6V15zm3-6h.008v.008H9V9zm0 3h.008v.008H9V12zm0 3h.008v.008H9V15zm3-6h.008v.008H12V9zm0 3h.008v.008H12V12zm0 3h.008v.008H12V15zm3-6h.008v.008H15V9zm0 3h.008v.008H15V12zm0 3h.008v.008H15V15zm3-6h.008v.008H18V9zm0 3h.008v.008H18V12zm0 3h.008v.008H18V15z",
     accentColor: "cyan",
   },
-  {
-    id: "wx-cash-balmo",
-    title: "Wx Adj Cash-Balmo",
-    description: "Weather-adjusted cash vs Balmo spreads with regional degree-day departures from normal.",
-    source: "ICE + WSI WDD / Azure PostgreSQL",
-    iconPath: "M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z",
-    accentColor: "cyan",
-  },
 ];
 
-const ACCENT_CLASSES: Record<string, { bg: string; icon: string; border: string; shadow: string }> = {
+const ACCENT_CLASSES: Record<
+  string,
+  { bg: string; icon: string; border: string; shadow: string }
+> = {
   purple: {
     bg: "bg-purple-500/10",
     icon: "text-purple-400",
@@ -138,10 +98,28 @@ const ACCENT_CLASSES: Record<string, { bg: string; icon: string; border: string;
   },
 };
 
-function HomeCards({ onNavigate }: { onNavigate: (section: ActiveSection) => void }) {
+function isFeatureEnabled(section: FeatureSection): boolean {
+  if (
+    section === "genscape-noms" ||
+    section === "watchlists" ||
+    section === "watchlist-editor"
+  ) {
+    return GENSCAPE_ENABLED;
+  }
+
+  return ICE_CASH_ENABLED;
+}
+
+function HomeCards({
+  cards,
+  onNavigate,
+}: {
+  cards: HomeCard[];
+  onNavigate: (section: ActiveSection) => void;
+}) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {HOME_CARDS.map((card) => {
+      {cards.map((card) => {
         const accent = ACCENT_CLASSES[card.accentColor];
         return (
           <button
@@ -178,9 +156,18 @@ export default function HomePageClient() {
   const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
   const [activeWatchlist, setActiveWatchlist] = useState<Watchlist | null>(null);
   const [watchlistsLoading, setWatchlistsLoading] = useState(true);
-  const meta = SECTION_META[activeSection];
+
+  const homeCards = useMemo(
+    () => HOME_CARDS.filter((card) => isFeatureEnabled(card.id)),
+    []
+  );
 
   useEffect(() => {
+    if (!GENSCAPE_ENABLED) {
+      setWatchlistsLoading(false);
+      return;
+    }
+
     fetch("/api/watchlists")
       .then((r) => r.json())
       .then((data) => {
@@ -198,9 +185,21 @@ export default function HomePageClient() {
       .finally(() => setWatchlistsLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (activeSection !== "home" && !isFeatureEnabled(activeSection)) {
+      setActiveSection("home");
+    }
+  }, [activeSection]);
+
+  const meta = SECTION_META[activeSection];
+
   return (
     <div className="flex min-h-screen">
-      <Sidebar activeSection={activeSection} onSectionChange={setActiveSection} />
+      <Sidebar
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        enabled={{ genscape: GENSCAPE_ENABLED, iceCash: ICE_CASH_ENABLED }}
+      />
 
       <div className="flex-1 overflow-auto">
         <main className="px-4 py-8 sm:px-8">
@@ -211,9 +210,14 @@ export default function HomePageClient() {
             <h1 className="text-2xl font-bold text-gray-100 sm:text-3xl">{meta.title}</h1>
             <p className="mt-2 text-sm text-gray-500">{meta.subtitle}</p>
           </div>
-          {activeSection === "home" && (
-            <HomeCards onNavigate={setActiveSection} />
-          )}
+          {activeSection === "home" &&
+            (homeCards.length > 0 ? (
+              <HomeCards cards={homeCards} onNavigate={setActiveSection} />
+            ) : (
+              <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 text-sm text-gray-500">
+                No features are enabled.
+              </div>
+            ))}
           {activeSection === "genscape-noms" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
               <GenscapeNomsTable />
@@ -221,9 +225,10 @@ export default function HomePageClient() {
           )}
           {activeSection === "watchlists" && (
             <>
-              {/* Watchlist selector */}
               <div className="mb-4 flex items-center gap-3">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Watchlist</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                  Watchlist
+                </span>
                 {watchlistsLoading ? (
                   <span className="text-xs text-gray-600">Loading...</span>
                 ) : (
@@ -256,24 +261,9 @@ export default function HomePageClient() {
               <WatchlistEditor />
             </div>
           )}
-          {activeSection === "cash-balmo" && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
-              <CashBalmoTable />
-            </div>
-          )}
           {activeSection === "cash-pricing-matrix" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
               <CashPricingMatrix />
-            </div>
-          )}
-          {activeSection === "wx-cash-balmo" && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
-              <WxCashBalmoTable />
-            </div>
-          )}
-          {activeSection === "cash-and-noms" && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
-              <CashAndNomsTable watchlists={watchlists} watchlistsLoading={watchlistsLoading} />
             </div>
           )}
           <p className="mt-6 text-center text-xs text-gray-600">{meta.footer}</p>

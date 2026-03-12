@@ -20,7 +20,7 @@ export async function GET() {
   try {
     const result = await query<WatchlistRow>(
       `SELECT watchlist_id, slug, display_name, location_role_ids, created_at
-       FROM helioscta_agents.genscape_noms_watchlists
+       FROM helioscta_app.genscape_noms_watchlists
        WHERE is_active = TRUE
        ORDER BY display_name`
     );
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
     const result = await query<{ watchlist_id: number; slug: string }>(
-      `INSERT INTO helioscta_agents.genscape_noms_watchlists (slug, display_name, location_role_ids, created_by)
+      `INSERT INTO helioscta_app.genscape_noms_watchlists (slug, display_name, location_role_ids, created_by)
        VALUES ($1, $2, $3, $4)
        RETURNING watchlist_id, slug`,
       [slug, name.trim(), locationRoleIds, authResult.userEmail]

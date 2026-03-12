@@ -59,7 +59,7 @@ export async function PATCH(
     sets.push(`updated_at = NOW()`);
     values.push(id);
 
-    const sql = `UPDATE helioscta_agents.genscape_noms_watchlists SET ${sets.join(", ")} WHERE watchlist_id = $${idx} AND is_active = TRUE RETURNING watchlist_id`;
+    const sql = `UPDATE helioscta_app.genscape_noms_watchlists SET ${sets.join(", ")} WHERE watchlist_id = $${idx} AND is_active = TRUE RETURNING watchlist_id`;
     const result = await query<{ watchlist_id: number }>(sql, values);
 
     if (result.rowCount === 0) {
@@ -99,7 +99,7 @@ export async function DELETE(
 
   try {
     const result = await query(
-      `UPDATE helioscta_agents.genscape_noms_watchlists SET is_active = FALSE, updated_at = NOW() WHERE watchlist_id = $1 AND is_active = TRUE`,
+      `UPDATE helioscta_app.genscape_noms_watchlists SET is_active = FALSE, updated_at = NOW() WHERE watchlist_id = $1 AND is_active = TRUE`,
       [id]
     );
 

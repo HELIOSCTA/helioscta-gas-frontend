@@ -723,7 +723,7 @@ export default function GenscapeNomsTable() {
         )}
       </div>
 
-      {/* ---------- Pre-apply prompt ---------- */}
+      {/* ---------- Filter setup actions ---------- */}
       {!hasApplied && (
         <div className="flex items-center justify-center h-48 rounded-xl border border-gray-800 bg-gray-900/40">
           <p className="text-sm text-gray-500">
