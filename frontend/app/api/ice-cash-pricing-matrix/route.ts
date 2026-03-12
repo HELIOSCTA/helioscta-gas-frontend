@@ -139,6 +139,7 @@ interface HubMatrixPayload {
   rows: MatrixRow[];
   strip: MatrixStripColumn[];
   sections: MatrixSection[];
+  dailyCashByMonthYear: Record<string, DailyCashPoint[]>;
 }
 
 interface RawMatrixRow {
@@ -173,6 +174,13 @@ interface SeasonalAccumulator {
   balmoCount: number;
   futuresSum: number[];
   futuresCount: number[];
+}
+
+interface DailyCashPoint {
+  date: string;
+  cash: number;
+  promptContractCode: string | null;
+  promptLabel: string | null;
 }
 
 const SOURCE_METADATA = {
@@ -508,6 +516,7 @@ function buildHubPayload(
   const hub = HUBS[hubKey];
   const currentRowsByDate = new Map<string, MatrixRow>();
   const seasonalByMonthYear = new Map<string, SeasonalAccumulator>();
+  const dailyCashByMonthYear = new Map<string, DailyCashPoint[]>();
   const stripByOffset = new Map<
     number,
     { contractCode: string; label: string; tradeDate: string }
@@ -589,6 +598,17 @@ function buildHubPayload(
     if (cash !== null) {
       seasonal.cashSum += cash;
       seasonal.cashCount += 1;
+
+      const monthKey = `${point.tradeYear}-${String(point.tradeMonth).padStart(2, "0")}`;
+      const prompt = point.strip[0];
+      const dailyRows = dailyCashByMonthYear.get(monthKey) ?? [];
+      dailyRows.push({
+        date: point.tradeDate,
+        cash,
+        promptContractCode: prompt?.contractCode ?? null,
+        promptLabel: prompt?.label ?? null,
+      });
+      dailyCashByMonthYear.set(monthKey, dailyRows);
     }
     if (balmo !== null) {
       seasonal.balmoSum += balmo;
@@ -628,10 +648,6 @@ function buildHubPayload(
 
   if (includeSeasonal) {
     for (let monthIdx = 1; monthIdx <= 12; monthIdx += 1) {
-      if (monthIdx === month) {
-        continue;
-      }
-
       const monthRows = [...seasonalByMonthYear.values()]
         .filter((row) => row.month === monthIdx && row.year <= year)
         .sort((a, b) => b.year - a.year)
@@ -667,6 +683,12 @@ function buildHubPayload(
     rows: currentRows,
     strip,
     sections,
+    dailyCashByMonthYear: Object.fromEntries(
+      [...dailyCashByMonthYear.entries()].map(([monthKey, points]) => [
+        monthKey,
+        points.sort((a, b) => a.date.localeCompare(b.date)),
+      ])
+    ),
   };
 }
 
@@ -770,6 +792,7 @@ export async function GET(request: Request) {
               rows: hubPayload.rows,
               strip: hubPayload.strip,
               sections: hubPayload.sections,
+              dailyCashByMonthYear: hubPayload.dailyCashByMonthYear,
               sourceMetadata: SOURCE_METADATA,
             };
           })();

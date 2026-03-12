@@ -41,3 +41,4 @@
 
 ## Agent References
 - Contributor preference notes: [`.SKILLS/todo-preferences.md`](./.SKILLS/todo-preferences.md).
+- Frontend theme/style preferences: [`.SKILLS/frontend-styling.md`](./.SKILLS/frontend-styling.md).

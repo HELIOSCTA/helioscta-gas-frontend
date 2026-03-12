@@ -5,6 +5,7 @@ import { useState } from "react";
 export type ActiveSection =
   | "home"
   | "genscape-noms"
+  | "noms-movements"
   | "watchlists"
   | "watchlist-editor"
   | "cash-pricing-matrix";
@@ -41,6 +42,7 @@ function getSections(enabled: SidebarProps["enabled"]): TopSection[] {
         { id: "watchlists", label: "Watchlists", group: "Watchlists" },
         { id: "watchlist-editor", label: "Manage Watchlists", group: "Watchlists" },
         { id: "genscape-noms", label: "Historical Noms", group: "Noms" },
+        { id: "noms-movements", label: "Nom Movements", group: "Noms" },
       ],
     });
   }
