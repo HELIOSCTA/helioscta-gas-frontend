@@ -13,6 +13,13 @@ function requiredEnv(name: string): string {
   return value;
 }
 
+function envMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 const config: sql.config = {
   server: requiredEnv("AZURE_SQL_DB_HOST"),
   port: Number.parseInt(process.env.AZURE_SQL_DB_PORT ?? "1433", 10),
@@ -28,8 +35,8 @@ const config: sql.config = {
     min: 0,
     idleTimeoutMillis: 30_000,
   },
-  connectionTimeout: 15_000,
-  requestTimeout: 30_000,
+  connectionTimeout: envMs("AZURE_SQL_CONNECTION_TIMEOUT_MS", 20_000),
+  requestTimeout: envMs("AZURE_SQL_REQUEST_TIMEOUT_MS", 120_000),
 };
 
 async function getPool(): Promise<sql.ConnectionPool> {

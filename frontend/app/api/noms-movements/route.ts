@@ -5,18 +5,6 @@ export const dynamic = "force-dynamic";
 
 const TABLE = "noms_v1_2026_jan_02.source_v1_genscape_noms";
 
-/* ── Row shapes ──────────────────────────────────────────────────── */
-
-interface AggRow {
-  location_role_id: number;
-  pipeline_short_name: string;
-  pipeline_name: string;
-  pipeline_id: number;
-  loc_name: string;
-  gas_day: string;
-  total_nom: number;
-}
-
 interface MetaRow {
   pipeline_id: number;
   pipeline_name: string;
@@ -45,7 +33,15 @@ interface MetaRow {
   storage_flag: number | null;
 }
 
-/* ── Response shapes ─────────────────────────────────────────────── */
+interface MetricsRow extends MetaRow {
+  latest_nom: number;
+  dod: number | null;
+  avg7d: number | null;
+  avg30d: number | null;
+  delta7d: number | null;
+  delta30d: number | null;
+  sparkline_csv: string | null;
+}
 
 export interface LocationData {
   locationRoleId: number;
@@ -73,9 +69,18 @@ export interface PipelineGroup {
   locations: LocationData[];
 }
 
+function parseSparkline(csv: string | null, fallback: number): number[] {
+  if (!csv) return [Math.round(fallback)];
+  const parsed = csv
+    .split(",")
+    .map((part) => Number(part))
+    .filter((v) => Number.isFinite(v))
+    .map((v) => Math.round(v));
+  return parsed.length > 0 ? parsed : [Math.round(fallback)];
+}
+
 export async function GET() {
   try {
-    /* Step 1 — get the latest gas_day (very fast, should use index) */
     const [{ max_day }] = await mssqlQuery<{ max_day: string }>(
       `SELECT CONVERT(varchar(10), MAX(gas_day), 120) AS max_day FROM ${TABLE}`
     );
@@ -87,91 +92,166 @@ export async function GET() {
       );
     }
 
-    /* Step 2 — daily aggregates per location_role_id for the last 31 days.
-       Use the raw gas_day column in the WHERE so indexes work.
-       Include pipeline_short_name, pipeline_name, pipeline_id, loc_name
-       in the GROUP BY so we get them without a separate metadata query. */
     const cutoff = new Date(max_day);
     cutoff.setDate(cutoff.getDate() - 31);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
 
-    const aggSql = `
-      SELECT
-        location_role_id,
-        pipeline_short_name,
-        pipeline_name,
-        pipeline_id,
-        loc_name,
-        CONVERT(varchar(10), gas_day, 120) AS gas_day,
-        SUM(scheduled_cap) AS total_nom
-      FROM ${TABLE}
-      WHERE gas_day >= @cutoff
-      GROUP BY location_role_id, pipeline_short_name, pipeline_name,
-               pipeline_id, loc_name, CONVERT(varchar(10), gas_day, 120)
-      ORDER BY pipeline_short_name, location_role_id,
-               CONVERT(varchar(10), gas_day, 120) DESC
-    `;
-
-    /* Step 3 — metadata for latest day only (one row per location_role_id).
-       Filter on gas_day directly (index-friendly). */
-    const metaSql = `
-      SELECT t.*
-      FROM (
+    const metricsSql = `
+      WITH daily AS (
         SELECT
-          pipeline_id, pipeline_name, pipeline_short_name,
-          tariff_zone, tz_id, state, county,
-          loc_name, location_id, location_role_id,
-          facility, role, role_code,
-          interconnecting_entity, interconnecting_pipeline_short_name,
-          meter, drn, latitude, longitude, sign,
-          cycle_code, cycle_name, units,
-          pipeline_balance_flag, storage_flag,
-          ROW_NUMBER() OVER (PARTITION BY location_role_id ORDER BY scheduled_cap DESC) AS rn
+          location_role_id,
+          pipeline_short_name,
+          pipeline_name,
+          pipeline_id,
+          loc_name,
+          CAST(gas_day AS DATE) AS gas_day,
+          SUM(scheduled_cap) AS total_nom
         FROM ${TABLE}
-        WHERE gas_day >= @maxDay AND gas_day < DATEADD(day, 1, CAST(@maxDay AS DATE))
-      ) t
-      WHERE t.rn = 1
+        WHERE gas_day >= @cutoff
+          AND gas_day < DATEADD(day, 1, CAST(@maxDay AS DATE))
+        GROUP BY
+          location_role_id,
+          pipeline_short_name,
+          pipeline_name,
+          pipeline_id,
+          loc_name,
+          CAST(gas_day AS DATE)
+      ),
+      metrics AS (
+        SELECT
+          d.location_role_id,
+          d.pipeline_short_name,
+          d.pipeline_name,
+          d.pipeline_id,
+          d.loc_name,
+          d.gas_day,
+          d.total_nom,
+          ROW_NUMBER() OVER (PARTITION BY d.location_role_id ORDER BY d.gas_day DESC) AS rn,
+          LEAD(d.total_nom, 1) OVER (PARTITION BY d.location_role_id ORDER BY d.gas_day DESC) AS prev_nom,
+          AVG(CAST(d.total_nom AS FLOAT)) OVER (
+            PARTITION BY d.location_role_id
+            ORDER BY d.gas_day DESC
+            ROWS BETWEEN 1 FOLLOWING AND 7 FOLLOWING
+          ) AS avg7d,
+          AVG(CAST(d.total_nom AS FLOAT)) OVER (
+            PARTITION BY d.location_role_id
+            ORDER BY d.gas_day DESC
+            ROWS BETWEEN 1 FOLLOWING AND 30 FOLLOWING
+          ) AS avg30d
+        FROM daily d
+      ),
+      sparkline_source AS (
+        SELECT
+          d.location_role_id,
+          d.gas_day,
+          d.total_nom,
+          ROW_NUMBER() OVER (PARTITION BY d.location_role_id ORDER BY d.gas_day DESC) AS rn
+        FROM daily d
+      ),
+      sparklines AS (
+        SELECT
+          s.location_role_id,
+          STRING_AGG(CAST(s.total_nom AS VARCHAR(32)), ',') WITHIN GROUP (ORDER BY s.gas_day ASC) AS sparkline_csv
+        FROM sparkline_source s
+        WHERE s.rn <= 7
+        GROUP BY s.location_role_id
+      ),
+      meta AS (
+        SELECT t.*
+        FROM (
+          SELECT
+            pipeline_id,
+            pipeline_name,
+            pipeline_short_name,
+            tariff_zone,
+            tz_id,
+            state,
+            county,
+            loc_name,
+            location_id,
+            location_role_id,
+            facility,
+            role,
+            role_code,
+            interconnecting_entity,
+            interconnecting_pipeline_short_name,
+            meter,
+            drn,
+            latitude,
+            longitude,
+            sign,
+            cycle_code,
+            cycle_name,
+            units,
+            pipeline_balance_flag,
+            storage_flag,
+            ROW_NUMBER() OVER (PARTITION BY location_role_id ORDER BY scheduled_cap DESC) AS rn
+          FROM ${TABLE}
+          WHERE gas_day >= @maxDay
+            AND gas_day < DATEADD(day, 1, CAST(@maxDay AS DATE))
+        ) t
+        WHERE t.rn = 1
+      )
+      SELECT
+        m.location_role_id,
+        m.pipeline_short_name,
+        m.pipeline_name,
+        m.pipeline_id,
+        m.loc_name,
+        m.total_nom AS latest_nom,
+        CASE
+          WHEN m.prev_nom IS NULL THEN NULL
+          ELSE m.total_nom - m.prev_nom
+        END AS dod,
+        m.avg7d,
+        m.avg30d,
+        CASE
+          WHEN m.avg7d IS NULL THEN NULL
+          ELSE m.total_nom - m.avg7d
+        END AS delta7d,
+        CASE
+          WHEN m.avg30d IS NULL THEN NULL
+          ELSE m.total_nom - m.avg30d
+        END AS delta30d,
+        s.sparkline_csv,
+        meta.tariff_zone,
+        meta.tz_id,
+        meta.state,
+        meta.county,
+        meta.location_id,
+        meta.facility,
+        meta.role,
+        meta.role_code,
+        meta.interconnecting_entity,
+        meta.interconnecting_pipeline_short_name,
+        meta.meter,
+        meta.drn,
+        meta.latitude,
+        meta.longitude,
+        meta.sign,
+        meta.cycle_code,
+        meta.cycle_name,
+        meta.units,
+        meta.pipeline_balance_flag,
+        meta.storage_flag
+      FROM metrics m
+      LEFT JOIN sparklines s ON s.location_role_id = m.location_role_id
+      LEFT JOIN meta ON meta.location_role_id = m.location_role_id
+      WHERE m.rn = 1
+      ORDER BY m.pipeline_short_name, ABS(m.total_nom) DESC
     `;
 
-    const [aggRows, metaRows] = await Promise.all([
-      mssqlQuery<AggRow>(aggSql, { cutoff: cutoffStr }),
-      mssqlQuery<MetaRow>(metaSql, { maxDay: max_day }),
-    ]);
+    const metricRows = await mssqlQuery<MetricsRow>(metricsSql, {
+      cutoff: cutoffStr,
+      maxDay: max_day,
+    });
 
-    if (aggRows.length === 0) {
+    if (metricRows.length === 0) {
       return NextResponse.json(
         { pipelines: [], latestDay: max_day },
         { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" } }
       );
     }
-
-    /* ── Build lookup maps ───────────────────────────────────────── */
-
-    const metaMap = new Map<number, MetaRow>();
-    for (const m of metaRows) metaMap.set(m.location_role_id, m);
-
-    // Group daily data by location_role_id (rows already ordered DESC by gas_day)
-    const dailyMap = new Map<
-      number,
-      { days: { day: string; vol: number }[]; pipeline: string; pipelineName: string; pipelineId: number; locName: string }
-    >();
-
-    for (const r of aggRows) {
-      let entry = dailyMap.get(r.location_role_id);
-      if (!entry) {
-        entry = {
-          days: [],
-          pipeline: r.pipeline_short_name,
-          pipelineName: r.pipeline_name,
-          pipelineId: r.pipeline_id,
-          locName: r.loc_name,
-        };
-        dailyMap.set(r.location_role_id, entry);
-      }
-      entry.days.push({ day: r.gas_day, vol: r.total_nom });
-    }
-
-    /* ── Compute per-location metrics ────────────────────────────── */
 
     interface LocResult {
       pipeline: string;
@@ -180,92 +260,53 @@ export async function GET() {
       data: LocationData;
     }
 
-    const locResults: LocResult[] = [];
+    const locResults: LocResult[] = metricRows.map((row) => {
+      const metadataObj: Record<string, unknown> = {
+        pipeline_id: row.pipeline_id,
+        pipeline_name: row.pipeline_name,
+        pipeline_short_name: row.pipeline_short_name,
+        tariff_zone: row.tariff_zone,
+        tz_id: row.tz_id,
+        state: row.state,
+        county: row.county,
+        loc_name: row.loc_name,
+        location_id: row.location_id,
+        location_role_id: row.location_role_id,
+        facility: row.facility,
+        role: row.role,
+        role_code: row.role_code,
+        interconnecting_entity: row.interconnecting_entity,
+        interconnecting_pipeline_short_name: row.interconnecting_pipeline_short_name,
+        meter: row.meter,
+        drn: row.drn,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        sign: row.sign,
+        cycle_code: row.cycle_code,
+        cycle_name: row.cycle_name,
+        units: row.units,
+        pipeline_balance_flag: row.pipeline_balance_flag,
+        storage_flag: row.storage_flag,
+      };
 
-    for (const [locId, entry] of dailyMap) {
-      const { days } = entry;
-      if (days.length === 0) continue;
-
-      const meta = metaMap.get(locId);
-
-      // latest day's nom
-      const latestEntry = days.find((d) => d.day === max_day);
-      const latestNom = latestEntry?.vol ?? days[0].vol;
-
-      // day-over-day
-      const prevDay = days.find((d) => d.day < max_day);
-      const dod = prevDay !== undefined ? latestNom - prevDay.vol : null;
-
-      // trailing averages (exclude latest day)
-      const trailing = days.filter((d) => d.day < max_day);
-      const trailing7 = trailing.slice(0, 7);
-      const trailing30 = trailing.slice(0, 30);
-
-      const avg7d =
-        trailing7.length > 0
-          ? trailing7.reduce((s, d) => s + d.vol, 0) / trailing7.length
-          : null;
-      const avg30d =
-        trailing30.length > 0
-          ? trailing30.reduce((s, d) => s + d.vol, 0) / trailing30.length
-          : null;
-
-      const delta7d = avg7d !== null ? latestNom - avg7d : null;
-      const delta30d = avg30d !== null ? latestNom - avg30d : null;
-
-      // sparkline: last 7 entries (newest first) → reverse for chart
-      const spark = days.slice(0, 7).map((d) => d.vol).reverse();
-
-      const metadataObj: Record<string, unknown> = meta
-        ? {
-            pipeline_id: meta.pipeline_id,
-            pipeline_name: meta.pipeline_name,
-            pipeline_short_name: meta.pipeline_short_name,
-            tariff_zone: meta.tariff_zone,
-            tz_id: meta.tz_id,
-            state: meta.state,
-            county: meta.county,
-            loc_name: meta.loc_name,
-            location_id: meta.location_id,
-            location_role_id: meta.location_role_id,
-            facility: meta.facility,
-            role: meta.role,
-            role_code: meta.role_code,
-            interconnecting_entity: meta.interconnecting_entity,
-            interconnecting_pipeline_short_name: meta.interconnecting_pipeline_short_name,
-            meter: meta.meter,
-            drn: meta.drn,
-            latitude: meta.latitude,
-            longitude: meta.longitude,
-            sign: meta.sign,
-            cycle_code: meta.cycle_code,
-            cycle_name: meta.cycle_name,
-            units: meta.units,
-            pipeline_balance_flag: meta.pipeline_balance_flag,
-            storage_flag: meta.storage_flag,
-          }
-        : {};
-
-      locResults.push({
-        pipeline: entry.pipeline,
-        pipelineName: entry.pipelineName,
-        pipelineId: entry.pipelineId,
+      return {
+        pipeline: row.pipeline_short_name,
+        pipelineName: row.pipeline_name,
+        pipelineId: row.pipeline_id,
         data: {
-          locationRoleId: locId,
-          locName: entry.locName,
-          latestNom: Math.round(latestNom),
-          dod: dod !== null ? Math.round(dod) : null,
-          avg7d: avg7d !== null ? Math.round(avg7d) : null,
-          avg30d: avg30d !== null ? Math.round(avg30d) : null,
-          delta7d: delta7d !== null ? Math.round(delta7d) : null,
-          delta30d: delta30d !== null ? Math.round(delta30d) : null,
-          sparkline: spark.map(Math.round),
+          locationRoleId: row.location_role_id,
+          locName: row.loc_name,
+          latestNom: Math.round(row.latest_nom),
+          dod: row.dod !== null ? Math.round(row.dod) : null,
+          avg7d: row.avg7d !== null ? Math.round(row.avg7d) : null,
+          avg30d: row.avg30d !== null ? Math.round(row.avg30d) : null,
+          delta7d: row.delta7d !== null ? Math.round(row.delta7d) : null,
+          delta30d: row.delta30d !== null ? Math.round(row.delta30d) : null,
+          sparkline: parseSparkline(row.sparkline_csv, row.latest_nom),
           metadata: metadataObj,
         },
-      });
-    }
-
-    /* ── Group into pipelines ────────────────────────────────────── */
+      };
+    });
 
     const pipelineMap = new Map<string, LocResult[]>();
     for (const lr of locResults) {
