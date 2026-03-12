@@ -185,8 +185,8 @@ const SOURCE_METADATA = {
     futuresSettlement: "ice_python.future_contracts_v1_2025_dec_16",
     nextDayGasRaw: "ice_python.next_day_gas_v1_2025_dec_16",
     balmoRaw: "ice_python.balmo_v1_2025_dec_16",
-    nextDayGasDaily: "ice_python_cleaned.ice_python_next_day_gas_daily",
-    balmoDaily: "ice_python_cleaned.ice_python_balmo",
+    nextDayGasDaily: "ice_python_cleaned.ice_python_next_day_gas_daily (fallback only)",
+    balmoDaily: "ice_python_cleaned.ice_python_balmo (fallback only)",
     nymexTradingDays: "dbt.source_v1_nymex_ng_expiration_dates_daily",
     promptCodes: "derived from prompt_contract_code + prompt_offset in SQL",
   },
@@ -271,19 +271,63 @@ futures AS (
       AND fc.symbol LIKE ANY($3::text[])
     GROUP BY 1, 2, 3
 ),
+cash_prices AS (
+    SELECT
+        trade_date,
+        AVG(CASE WHEN symbol = 'XGF D1-IPG' THEN value END) AS hh_cash,
+        AVG(CASE WHEN symbol = 'XVA D1-IPG' THEN value END) AS transco_st85_cash,
+        AVG(CASE WHEN symbol = 'XT6 D1-IPG' THEN value END) AS waha_cash,
+        AVG(CASE WHEN symbol = 'YFF D1-IPG' THEN value END) AS transco_zone_5_south_cash,
+        AVG(CASE WHEN symbol = 'XZR D1-IPG' THEN value END) AS tetco_m3_cash,
+        AVG(CASE WHEN symbol = 'X7F D1-IPG' THEN value END) AS agt_cash,
+        AVG(CASE WHEN symbol = 'YP8 D1-IPG' THEN value END) AS iroquois_z2_cash,
+        AVG(CASE WHEN symbol = 'XKF D1-IPG' THEN value END) AS socal_cg_cash,
+        AVG(CASE WHEN symbol = 'XGV D1-IPG' THEN value END) AS pge_cg_cash,
+        AVG(CASE WHEN symbol = 'YKL D1-IPG' THEN value END) AS cig_cash
+    FROM ice_python.next_day_gas_v1_2025_dec_16
+    WHERE trade_date >= $1::date
+      AND trade_date <= LEAST($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'MST')::date)
+      AND symbol IN (
+        'XGF D1-IPG', 'XVA D1-IPG', 'XT6 D1-IPG', 'YFF D1-IPG', 'XZR D1-IPG',
+        'X7F D1-IPG', 'YP8 D1-IPG', 'XKF D1-IPG', 'XGV D1-IPG', 'YKL D1-IPG'
+      )
+    GROUP BY trade_date
+),
+balmo_prices AS (
+    SELECT
+        trade_date,
+        AVG(CASE WHEN symbol = 'HHD B0-IUS' THEN value END) AS hh_balmo,
+        AVG(CASE WHEN symbol = 'TRW B0-IUS' THEN value END) AS transco_st85_balmo,
+        AVG(CASE WHEN symbol = 'WAS B0-IUS' THEN value END) AS waha_balmo,
+        AVG(CASE WHEN symbol = 'T5C B0-IUS' THEN value END) AS transco_zone_5_south_balmo,
+        AVG(CASE WHEN symbol = 'TSS B0-IUS' THEN value END) AS tetco_m3_balmo,
+        AVG(CASE WHEN symbol = 'ALS B0-IUS' THEN value END) AS agt_balmo,
+        AVG(CASE WHEN symbol = 'IZS B0-IUS' THEN value END) AS iroquois_z2_balmo,
+        AVG(CASE WHEN symbol = 'SCS B0-IUS' THEN value END) AS socal_cg_balmo,
+        AVG(CASE WHEN symbol = 'PIG B0-IUS' THEN value END) AS pge_cg_balmo,
+        AVG(CASE WHEN symbol = 'CRS B0-IUS' THEN value END) AS cig_balmo
+    FROM ice_python.balmo_v1_2025_dec_16
+    WHERE trade_date >= $1::date
+      AND trade_date <= LEAST($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'MST')::date)
+      AND symbol IN (
+        'HHD B0-IUS', 'TRW B0-IUS', 'WAS B0-IUS', 'T5C B0-IUS', 'TSS B0-IUS',
+        'ALS B0-IUS', 'IZS B0-IUS', 'SCS B0-IUS', 'PIG B0-IUS', 'CRS B0-IUS'
+      )
+    GROUP BY trade_date
+),
 daily_prices AS (
     SELECT
-        nd.trade_date,
-        nd.hh_cash,
-        nd.transco_st85_cash,
-        nd.waha_cash,
-        nd.transco_zone_5_south_cash,
-        nd.tetco_m3_cash,
-        nd.agt_cash,
-        nd.iroquois_z2_cash,
-        nd.socal_cg_cash,
-        nd.pge_cg_cash,
-        nd.cig_cash,
+        COALESCE(c.trade_date, b.trade_date) AS trade_date,
+        c.hh_cash,
+        c.transco_st85_cash,
+        c.waha_cash,
+        c.transco_zone_5_south_cash,
+        c.tetco_m3_cash,
+        c.agt_cash,
+        c.iroquois_z2_cash,
+        c.socal_cg_cash,
+        c.pge_cg_cash,
+        c.cig_cash,
         b.hh_balmo,
         b.transco_st85_balmo,
         b.waha_balmo,
@@ -294,11 +338,9 @@ daily_prices AS (
         b.socal_cg_balmo,
         b.pge_cg_balmo,
         b.cig_balmo
-    FROM ice_python_cleaned.ice_python_next_day_gas_daily nd
-    LEFT JOIN ice_python_cleaned.ice_python_balmo b
-      ON b.trade_date = nd.trade_date
-    WHERE nd.trade_date >= $1::date
-      AND nd.trade_date <= LEAST($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'MST')::date)
+    FROM cash_prices c
+    FULL OUTER JOIN balmo_prices b
+      ON b.trade_date = c.trade_date
 )
 SELECT
     s.trade_date,
@@ -460,7 +502,8 @@ function buildHubPayload(
   hubKey: string,
   month: number,
   year: number,
-  seasonalYears: number
+  seasonalYears: number,
+  includeSeasonal: boolean
 ): HubMatrixPayload {
   const hub = HUBS[hubKey];
   const currentRowsByDate = new Map<string, MatrixRow>();
@@ -576,43 +619,45 @@ function buildHubPayload(
   const sections: MatrixSection[] = [
     {
       key: "current-month",
-      title: "Current Month Cash to Henry Hub Futures",
+      title: "Current Month Cash to Balmo/Futures",
       rowLabel: "date",
       rows: currentRows,
       averages: computeAverages(currentRows),
     },
   ];
 
-  for (let monthIdx = 1; monthIdx <= 12; monthIdx += 1) {
-    if (monthIdx === month) {
-      continue;
+  if (includeSeasonal) {
+    for (let monthIdx = 1; monthIdx <= 12; monthIdx += 1) {
+      if (monthIdx === month) {
+        continue;
+      }
+
+      const monthRows = [...seasonalByMonthYear.values()]
+        .filter((row) => row.month === monthIdx && row.year <= year)
+        .sort((a, b) => b.year - a.year)
+        .slice(0, seasonalYears)
+        .map<MatrixRow>((row) => ({
+          rowKey: String(row.year),
+          label: String(row.year),
+          cash: row.cashCount > 0 ? row.cashSum / row.cashCount : null,
+          balmo: row.balmoCount > 0 ? row.balmoSum / row.balmoCount : null,
+          futures: row.futuresSum.map((sum, offset) =>
+            row.futuresCount[offset] > 0 ? sum / row.futuresCount[offset] : null
+          ),
+        }));
+
+      if (monthRows.length === 0) {
+        continue;
+      }
+
+      sections.push({
+        key: `seasonal-${monthIdx}`,
+        title: `${MONTH_NAMES[monthIdx - 1]} Matrix of Cash against Henry Hub Futures`,
+        rowLabel: "year",
+        rows: monthRows,
+        averages: computeAverages(monthRows),
+      });
     }
-
-    const monthRows = [...seasonalByMonthYear.values()]
-      .filter((row) => row.month === monthIdx && row.year <= year)
-      .sort((a, b) => b.year - a.year)
-      .slice(0, seasonalYears)
-      .map<MatrixRow>((row) => ({
-        rowKey: String(row.year),
-        label: String(row.year),
-        cash: row.cashCount > 0 ? row.cashSum / row.cashCount : null,
-        balmo: row.balmoCount > 0 ? row.balmoSum / row.balmoCount : null,
-        futures: row.futuresSum.map((sum, offset) =>
-          row.futuresCount[offset] > 0 ? sum / row.futuresCount[offset] : null
-        ),
-      }));
-
-    if (monthRows.length === 0) {
-      continue;
-    }
-
-    sections.push({
-      key: `seasonal-${monthIdx}`,
-      title: `${MONTH_NAMES[monthIdx - 1]} Matrix of Cash against Henry Hub Futures`,
-      rowLabel: "year",
-      rows: monthRows,
-      averages: computeAverages(monthRows),
-    });
   }
 
   return {
@@ -648,22 +693,34 @@ export async function GET(request: Request) {
       : 5;
 
   const scope = searchParams.get("scope") === "all" ? "all" : "single";
+  const requestedView = searchParams.get("view");
+  const view =
+    requestedView === "summary" || requestedView === "full"
+      ? requestedView
+      : scope === "all"
+      ? "summary"
+      : "full";
+  const includeSeasonal = view === "full";
   const requestedHub = searchParams.get("hub") || "hh";
 
   if (scope === "single" && !HUB_KEYS.includes(requestedHub)) {
     return NextResponse.json({ error: `Invalid hub: ${requestedHub}` }, { status: 400 });
   }
 
-  const cacheKey = `${scope}:${month}:${year}:${seasonalYears}:${scope === "single" ? requestedHub : "all"}`;
+  const cacheKey = `${scope}:${view}:${month}:${year}:${seasonalYears}:${scope === "single" ? requestedHub : "all"}`;
   const cached = RESPONSE_CACHE.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json(cached.payload, { headers: cacheHeaders() });
   }
 
   try {
-    const rangeStartYear = Math.max(2013, year - seasonalYears - 1);
-    const startDate = `${rangeStartYear}-01-01`;
-    const endDate = `${year}-12-31`;
+    const monthPadded = String(month).padStart(2, "0");
+    const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const monthEnd = `${year}-${monthPadded}-${String(lastDayOfMonth).padStart(2, "0")}`;
+
+    const rangeStartYear = Math.max(2013, year - seasonalYears + 1);
+    const startDate = includeSeasonal ? `${rangeStartYear}-01-01` : `${year}-${monthPadded}-01`;
+    const endDate = includeSeasonal ? `${year}-12-31` : monthEnd;
 
     const rootsForQuery =
       scope === "all"
@@ -679,6 +736,7 @@ export async function GET(request: Request) {
       scope === "all"
         ? {
             scope: "all" as const,
+            view,
             month,
             year,
             seasonalYears,
@@ -686,7 +744,7 @@ export async function GET(request: Request) {
             hubs: Object.fromEntries(
               HUB_KEYS.map((hubKey) => [
                 hubKey,
-                buildHubPayload(sharedPoints, hubKey, month, year, seasonalYears),
+                buildHubPayload(sharedPoints, hubKey, month, year, seasonalYears, includeSeasonal),
               ])
             ) as Record<string, HubMatrixPayload>,
             sourceMetadata: SOURCE_METADATA,
@@ -697,10 +755,12 @@ export async function GET(request: Request) {
               requestedHub,
               month,
               year,
-              seasonalYears
+              seasonalYears,
+              includeSeasonal
             );
             return {
               scope: "single" as const,
+              view,
               month,
               year,
               seasonalYears,
