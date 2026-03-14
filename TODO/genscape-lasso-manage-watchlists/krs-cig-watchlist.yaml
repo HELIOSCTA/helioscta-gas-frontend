@@ -1,0 +1,72 @@
+[
+    {
+        "pipelineShortName": "CIG",
+        "locationName": "CO/KN ST LINE TO LAKIN CS     ",
+        "facility": "THROUGHPUT METER",
+        "locationId": 442494,
+        "tomorrow": "0",
+        "today": "135523",
+        "yesterday": "136793",
+        "twoDaysOld": "139445",
+        "threeDaysOld": "136339",
+        "fourDaysOld": "139157",
+        "fiveDaysOld": "137564",
+        "sixDaysOld": "136158"
+    },
+    {
+        "pipelineShortName": "CIG",
+        "locationName": "DOVER  TO WELD COUNTY LAT     ",
+        "facility": "THROUGHPUT METER",
+        "locationId": 442454,
+        "tomorrow": "0",
+        "today": "-372539",
+        "yesterday": "-392393",
+        "twoDaysOld": "-397991",
+        "threeDaysOld": "-442302",
+        "fourDaysOld": "-433144",
+        "fiveDaysOld": "-432239",
+        "sixDaysOld": "-433965"
+    },
+    {
+        "pipelineShortName": "CIG",
+        "locationName": "KN/OK ST LINE TO BAKER MS     ",
+        "facility": "THROUGHPUT METER",
+        "locationId": 442496,
+        "tomorrow": "0",
+        "today": "226549",
+        "yesterday": "232425",
+        "twoDaysOld": "232072",
+        "threeDaysOld": "227688",
+        "fourDaysOld": "220497",
+        "fiveDaysOld": "185460",
+        "sixDaysOld": "186085"
+    },
+    {
+        "pipelineShortName": "CIG",
+        "locationName": "(TXSC) TEXAS SOUTH",
+        "facility": "THROUGHPUT METER",
+        "locationId": 442500,
+        "tomorrow": "0",
+        "today": "41539",
+        "yesterday": "43090",
+        "twoDaysOld": "47160",
+        "threeDaysOld": "48993",
+        "fourDaysOld": "58842",
+        "fiveDaysOld": "91882",
+        "sixDaysOld": "95695"
+    },
+    {
+        "pipelineShortName": "CIG",
+        "locationName": "(WMCC) WAMSUTTER COMPRESSOR",
+        "facility": "THROUGHPUT METER",
+        "locationId": 442373,
+        "tomorrow": "0",
+        "today": "-34971",
+        "yesterday": "-5101",
+        "twoDaysOld": "-52462",
+        "threeDaysOld": "-88879",
+        "fourDaysOld": "-37262",
+        "fiveDaysOld": "-81009",
+        "sixDaysOld": "-54090"
+    }
+]

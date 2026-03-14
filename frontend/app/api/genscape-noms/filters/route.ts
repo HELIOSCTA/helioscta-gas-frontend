@@ -17,9 +17,51 @@ export async function GET(request: Request) {
   const pipelinesParam = searchParams.get("pipelines"); // comma-separated
   const locNamesParam = searchParams.get("locNames");   // comma-separated
   const locationRoleIdsParam = searchParams.get("locationRoleIds"); // comma-separated
+  const locationIdsParam = searchParams.get("locationIds"); // comma-separated (lasso import: location_id → location_role_id)
 
   try {
     const result: Record<string, unknown> = {};
+
+    // --- Lasso import mode: resolve location_id → location_role_id ---
+    if (locationIdsParam) {
+      const locIdList = locationIdsParam.split(",").map(Number).filter(Number.isFinite);
+      if (locIdList.length === 0) {
+        return NextResponse.json({ pipelines: [], loc_names: [], location_role_ids: [] });
+      }
+
+      const params: Record<string, unknown> = {};
+      const placeholders = locIdList.map((id, i) => {
+        params[`lid${i}`] = id;
+        return `@lid${i}`;
+      });
+      const inClause = placeholders.join(", ");
+      const baseWhere = `WHERE location_id IN (${inClause})`;
+
+      const [pipelineRows, locNameRows, roleIdRows] = await Promise.all([
+        mssqlQuery<{ pipeline_short_name: string }>(
+          `SELECT DISTINCT pipeline_short_name FROM ${TABLE} ${baseWhere} ORDER BY pipeline_short_name`,
+          params
+        ),
+        mssqlQuery<{ loc_name: string }>(
+          `SELECT DISTINCT loc_name FROM ${TABLE} ${baseWhere} ORDER BY loc_name`,
+          params
+        ),
+        mssqlQuery<{ location_role_id: number }>(
+          `SELECT DISTINCT location_role_id FROM ${TABLE} ${baseWhere} ORDER BY location_role_id`,
+          params
+        ),
+      ]);
+
+      result.pipelines = pipelineRows.map((r) => r.pipeline_short_name).filter(Boolean);
+      result.loc_names = locNameRows.map((r) => r.loc_name).filter(Boolean);
+      result.location_role_ids = roleIdRows.map((r) => r.location_role_id).filter((v) => v != null);
+
+      return NextResponse.json(result, {
+        headers: {
+          "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=300",
+        },
+      });
+    }
 
     // --- Watchlist mode: scoped to a set of location_role_ids ---
     if (locationRoleIdsParam) {

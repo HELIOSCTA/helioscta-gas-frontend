@@ -5,6 +5,20 @@ export const dynamic = "force-dynamic";
 
 const TABLE = "noms_v1_2026_jan_02.source_v1_genscape_noms";
 
+function addInClause(
+  prefix: string,
+  values: string[],
+  params: Record<string, unknown>
+): string {
+  return values
+    .map((v, i) => {
+      const key = `${prefix}${i}`;
+      params[key] = v;
+      return `@${key}`;
+    })
+    .join(", ");
+}
+
 interface MetaRow {
   pipeline_id: number;
   pipeline_name: string;
@@ -35,11 +49,10 @@ interface MetaRow {
 
 interface MetricsRow extends MetaRow {
   latest_nom: number;
-  dod: number | null;
+  avg1d: number | null;
   avg7d: number | null;
-  avg30d: number | null;
+  delta1d: number | null;
   delta7d: number | null;
-  delta30d: number | null;
   sparkline_csv: string | null;
 }
 
@@ -47,11 +60,10 @@ export interface LocationData {
   locationRoleId: number;
   locName: string;
   latestNom: number;
-  dod: number | null;
+  avg1d: number | null;
   avg7d: number | null;
-  avg30d: number | null;
+  delta1d: number | null;
   delta7d: number | null;
-  delta30d: number | null;
   sparkline: number[];
   metadata: Record<string, unknown>;
 }
@@ -63,9 +75,8 @@ export interface PipelineGroup {
   regions: string[];
   latestDay: string;
   summaryLatest: number;
-  summaryDod: number | null;
+  summaryDelta1d: number | null;
   summaryDelta7d: number | null;
-  summaryDelta30d: number | null;
   locations: LocationData[];
 }
 
@@ -79,8 +90,17 @@ function parseSparkline(csv: string | null, fallback: number): number[] {
   return parsed.length > 0 ? parsed : [Math.round(fallback)];
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const thresholdRaw = Number.parseFloat(searchParams.get("threshold") ?? "0");
+    const threshold = Number.isFinite(thresholdRaw) && thresholdRaw >= 0 ? thresholdRaw : 0;
+    const pipelineParam = searchParams.get("pipeline") ?? "";
+    const selectedPipelines = pipelineParam
+      .split(",")
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+
     const [{ max_day }] = await mssqlQuery<{ max_day: string }>(
       `SELECT CONVERT(varchar(10), MAX(gas_day), 120) AS max_day FROM ${TABLE}`
     );
@@ -93,8 +113,16 @@ export async function GET() {
     }
 
     const cutoff = new Date(max_day);
-    cutoff.setDate(cutoff.getDate() - 31);
+    cutoff.setDate(cutoff.getDate() - 7);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const queryParams: Record<string, unknown> = {
+      cutoff: cutoffStr,
+      maxDay: max_day,
+    };
+    const pipelineFilterSql =
+      selectedPipelines.length > 0
+        ? `AND pipeline_short_name IN (${addInClause("pl", selectedPipelines, queryParams)})`
+        : "";
 
     const metricsSql = `
       WITH daily AS (
@@ -109,6 +137,7 @@ export async function GET() {
         FROM ${TABLE}
         WHERE gas_day >= @cutoff
           AND gas_day < DATEADD(day, 1, CAST(@maxDay AS DATE))
+          ${pipelineFilterSql}
         GROUP BY
           location_role_id,
           pipeline_short_name,
@@ -127,17 +156,16 @@ export async function GET() {
           d.gas_day,
           d.total_nom,
           ROW_NUMBER() OVER (PARTITION BY d.location_role_id ORDER BY d.gas_day DESC) AS rn,
-          LEAD(d.total_nom, 1) OVER (PARTITION BY d.location_role_id ORDER BY d.gas_day DESC) AS prev_nom,
+          AVG(CAST(d.total_nom AS FLOAT)) OVER (
+            PARTITION BY d.location_role_id
+            ORDER BY d.gas_day DESC
+            ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
+          ) AS avg1d,
           AVG(CAST(d.total_nom AS FLOAT)) OVER (
             PARTITION BY d.location_role_id
             ORDER BY d.gas_day DESC
             ROWS BETWEEN 1 FOLLOWING AND 7 FOLLOWING
-          ) AS avg7d,
-          AVG(CAST(d.total_nom AS FLOAT)) OVER (
-            PARTITION BY d.location_role_id
-            ORDER BY d.gas_day DESC
-            ROWS BETWEEN 1 FOLLOWING AND 30 FOLLOWING
-          ) AS avg30d
+          ) AS avg7d
         FROM daily d
       ),
       sparkline_source AS (
@@ -189,6 +217,7 @@ export async function GET() {
           FROM ${TABLE}
           WHERE gas_day >= @maxDay
             AND gas_day < DATEADD(day, 1, CAST(@maxDay AS DATE))
+            ${pipelineFilterSql}
         ) t
         WHERE t.rn = 1
       )
@@ -199,20 +228,16 @@ export async function GET() {
         m.pipeline_id,
         m.loc_name,
         m.total_nom AS latest_nom,
-        CASE
-          WHEN m.prev_nom IS NULL THEN NULL
-          ELSE m.total_nom - m.prev_nom
-        END AS dod,
+        m.avg1d,
         m.avg7d,
-        m.avg30d,
+        CASE
+          WHEN m.avg1d IS NULL THEN NULL
+          ELSE m.total_nom - m.avg1d
+        END AS delta1d,
         CASE
           WHEN m.avg7d IS NULL THEN NULL
           ELSE m.total_nom - m.avg7d
         END AS delta7d,
-        CASE
-          WHEN m.avg30d IS NULL THEN NULL
-          ELSE m.total_nom - m.avg30d
-        END AS delta30d,
         s.sparkline_csv,
         meta.tariff_zone,
         meta.tz_id,
@@ -241,14 +266,20 @@ export async function GET() {
       ORDER BY m.pipeline_short_name, ABS(m.total_nom) DESC
     `;
 
-    const metricRows = await mssqlQuery<MetricsRow>(metricsSql, {
-      cutoff: cutoffStr,
-      maxDay: max_day,
-    });
+    const metricRows = await mssqlQuery<MetricsRow>(metricsSql, queryParams);
 
-    if (metricRows.length === 0) {
+    const filteredMetricRows =
+      threshold > 0
+        ? metricRows.filter((row) => {
+            const absDelta1d = Math.abs(row.delta1d ?? 0);
+            const absDelta7d = Math.abs(row.delta7d ?? 0);
+            return absDelta1d >= threshold || absDelta7d >= threshold;
+          })
+        : metricRows;
+
+    if (filteredMetricRows.length === 0) {
       return NextResponse.json(
-        { pipelines: [], latestDay: max_day },
+        { pipelines: [], latestDay: max_day, threshold },
         { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" } }
       );
     }
@@ -260,7 +291,7 @@ export async function GET() {
       data: LocationData;
     }
 
-    const locResults: LocResult[] = metricRows.map((row) => {
+    const locResults: LocResult[] = filteredMetricRows.map((row) => {
       const metadataObj: Record<string, unknown> = {
         pipeline_id: row.pipeline_id,
         pipeline_name: row.pipeline_name,
@@ -297,11 +328,10 @@ export async function GET() {
           locationRoleId: row.location_role_id,
           locName: row.loc_name,
           latestNom: Math.round(row.latest_nom),
-          dod: row.dod !== null ? Math.round(row.dod) : null,
+          avg1d: row.avg1d !== null ? Math.round(row.avg1d) : null,
           avg7d: row.avg7d !== null ? Math.round(row.avg7d) : null,
-          avg30d: row.avg30d !== null ? Math.round(row.avg30d) : null,
+          delta1d: row.delta1d !== null ? Math.round(row.delta1d) : null,
           delta7d: row.delta7d !== null ? Math.round(row.delta7d) : null,
-          delta30d: row.delta30d !== null ? Math.round(row.delta30d) : null,
           sparkline: parseSparkline(row.sparkline_csv, row.latest_nom),
           metadata: metadataObj,
         },
@@ -321,14 +351,11 @@ export async function GET() {
 
       const first = locs[0];
       const summaryLatest = locs.reduce((s, l) => s + l.data.latestNom, 0);
-      const summaryDod = locs.every((l) => l.data.dod !== null)
-        ? locs.reduce((s, l) => s + (l.data.dod ?? 0), 0)
+      const summaryDelta1d = locs.every((l) => l.data.delta1d !== null)
+        ? locs.reduce((s, l) => s + (l.data.delta1d ?? 0), 0)
         : null;
       const summaryDelta7d = locs.every((l) => l.data.delta7d !== null)
         ? locs.reduce((s, l) => s + (l.data.delta7d ?? 0), 0)
-        : null;
-      const summaryDelta30d = locs.every((l) => l.data.delta30d !== null)
-        ? locs.reduce((s, l) => s + (l.data.delta30d ?? 0), 0)
         : null;
 
       const regions = [...new Set(locs.map((l) => l.data.locName))];
@@ -340,9 +367,8 @@ export async function GET() {
         regions,
         latestDay: max_day,
         summaryLatest,
-        summaryDod,
+        summaryDelta1d,
         summaryDelta7d,
-        summaryDelta30d,
         locations: locs.map((l) => l.data),
       });
     }
@@ -350,7 +376,7 @@ export async function GET() {
     pipelines.sort((a, b) => Math.abs(b.summaryLatest) - Math.abs(a.summaryLatest));
 
     return NextResponse.json(
-      { pipelines, latestDay: max_day },
+      { pipelines, latestDay: max_day, threshold },
       {
         headers: {
           "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60",

@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import MultiSelect from "@/components/ui/MultiSelect";
+import {
+  extractLocationIds,
+  ExtractionError,
+} from "@/lib/extract-location-ids";
 
 /* ------------------------------------------------------------------ */
 /*  sessionStorage cache helpers                                       */
@@ -38,6 +42,12 @@ interface WatchlistRow {
   created_at: string;
 }
 
+interface LassoPreviewRow {
+  pipelineShortName: string;
+  locationName: string;
+  locationId: number;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -53,6 +63,13 @@ export default function WatchlistEditor() {
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Lasso import state
+  const [showLassoImport, setShowLassoImport] = useState(false);
+  const [lassoText, setLassoText] = useState("");
+  const [lassoError, setLassoError] = useState<string | null>(null);
+  const [lassoPreview, setLassoPreview] = useState<LassoPreviewRow[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Cascading filter state
   const [allPipelines, setAllPipelines] = useState<string[]>([]);
@@ -231,12 +248,120 @@ export default function WatchlistEditor() {
       .finally(() => setFilterLoading(false));
   }, []);
 
+  // Lasso resolving state
+  const [lassoResolving, setLassoResolving] = useState(false);
+
+  /* ---- Lasso import ---- */
+  const applyLassoText = useCallback(async (text: string) => {
+    setLassoError(null);
+    try {
+      const { locationIds } = extractLocationIds(text);
+
+      // Build preview rows from the raw parsed data
+      try {
+        const parsed = JSON.parse(text.trim());
+        const items: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+        const seen = new Set<number>();
+        const preview: LassoPreviewRow[] = [];
+        for (const item of items) {
+          if (item && typeof item === "object" && "locationId" in item) {
+            const obj = item as Record<string, unknown>;
+            const id = typeof obj.locationId === "number" ? obj.locationId
+              : typeof obj.locationId === "string" ? parseInt(obj.locationId as string, 10)
+              : NaN;
+            if (Number.isInteger(id) && !seen.has(id)) {
+              seen.add(id);
+              preview.push({
+                pipelineShortName: String(obj.pipelineShortName ?? obj.pipeline_short_name ?? "—"),
+                locationName: String(obj.locationName ?? obj.loc_name ?? "—").trim(),
+                locationId: id,
+              });
+            }
+          }
+        }
+        setLassoPreview(preview);
+      } catch {
+        setLassoPreview([]);
+      }
+
+      // Resolve location_id → location_role_id via API
+      setLassoResolving(true);
+      setShowLassoImport(false);
+      setLassoText("");
+      try {
+        const params = new URLSearchParams({
+          locationIds: locationIds.join(","),
+        });
+        const res = await fetch(`/api/genscape-noms/filters?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        const roleIds: string[] = (data.location_role_ids ?? []).map(String);
+        const pipelines: string[] = data.pipelines ?? [];
+        const locNames: string[] = data.loc_names ?? [];
+
+        if (roleIds.length === 0) {
+          setLassoError(
+            "No matching location role IDs found in the database for the imported location IDs."
+          );
+          setSelectedRoleIds([]);
+        } else {
+          setSelectedRoleIds(roleIds);
+        }
+        setSelectedPipelines(pipelines);
+        setSelectedLocNames([]);
+        setAvailableLocNames(locNames);
+        setAvailableRoleIds(roleIds);
+        setAllRoleIdsForPipelines(roleIds);
+      } catch {
+        setLassoError("Failed to resolve location IDs. Please try again.");
+      } finally {
+        setLassoResolving(false);
+      }
+    } catch (err) {
+      if (err instanceof ExtractionError) {
+        setLassoError(err.message);
+      } else {
+        setLassoError("Unexpected error processing input.");
+      }
+      setLassoPreview([]);
+    }
+  }, []);
+
+  const handleLassoImport = useCallback(() => {
+    applyLassoText(lassoText);
+  }, [lassoText, applyLassoText]);
+
+  const handleFileUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = reader.result as string;
+        setLassoText(text);
+        applyLassoText(text);
+      };
+      reader.onerror = () => {
+        setLassoError("Failed to read file.");
+      };
+      reader.readAsText(file);
+      // Reset input so the same file can be re-selected
+      e.target.value = "";
+    },
+    [applyLassoText]
+  );
+
   /* ---- New watchlist ---- */
   const handleNew = useCallback(() => {
     setSelectedId("new");
     setEditName("");
     setError(null);
     setConfirmDelete(false);
+    setShowLassoImport(false);
+    setLassoText("");
+    setLassoError(null);
+    setLassoPreview([]);
     resetFilters();
   }, [resetFilters]);
 
@@ -246,6 +371,10 @@ export default function WatchlistEditor() {
     setEditName("");
     setError(null);
     setConfirmDelete(false);
+    setShowLassoImport(false);
+    setLassoText("");
+    setLassoError(null);
+    setLassoPreview([]);
     resetFilters();
   }, [resetFilters]);
 
@@ -409,6 +538,131 @@ export default function WatchlistEditor() {
                   className="w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
                 />
               </div>
+
+              {/* Lasso Import */}
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLassoImport((prev) => !prev);
+                    setLassoError(null);
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-medium text-purple-400 transition-colors hover:text-purple-300"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  {showLassoImport ? "Hide Lasso Import" : "Import from Lasso"}
+                </button>
+
+                {showLassoImport && (
+                  <div className="space-y-3 rounded-lg border border-gray-800 bg-[#0f1117] p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                      Import Lasso Output
+                    </p>
+                    <p className="text-[11px] text-gray-500">
+                      Upload a JSON/YAML file or paste the response captured from DevTools.
+                    </p>
+
+                    {/* File upload */}
+                    <div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".json,.yaml,.yml,.txt"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex items-center gap-1.5 rounded border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-gray-300 transition-colors hover:border-gray-500 hover:bg-gray-700"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M6 20h12a2 2 0 002-2V8l-6-6H6a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                        Choose File
+                      </button>
+                    </div>
+
+                    {/* Divider */}
+                    <div className="flex items-center gap-2">
+                      <div className="h-px flex-1 bg-gray-800" />
+                      <span className="text-[10px] text-gray-600">or paste below</span>
+                      <div className="h-px flex-1 bg-gray-800" />
+                    </div>
+
+                    {/* Paste area */}
+                    <textarea
+                      value={lassoText}
+                      onChange={(e) => {
+                        setLassoText(e.target.value);
+                        setLassoError(null);
+                      }}
+                      placeholder='[{"locationId": 442494, ...}, ...]'
+                      rows={5}
+                      className="w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-xs text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+                    />
+                    {lassoError && (
+                      <p className="text-xs text-red-400">{lassoError}</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleLassoImport}
+                      disabled={!lassoText.trim()}
+                      className="rounded bg-purple-600/80 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-500 disabled:opacity-50"
+                    >
+                      Extract IDs
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Lasso Import Preview */}
+              {lassoResolving && (
+                <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 px-4 py-3">
+                  <p className="text-xs text-purple-400">Resolving location IDs...</p>
+                </div>
+              )}
+              {lassoPreview.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-purple-500/30 bg-purple-500/5 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-purple-400">
+                      Imported Locations ({lassoPreview.length}) — {selectedRoleIds.length} role ID{selectedRoleIds.length !== 1 ? "s" : ""} resolved
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLassoPreview([]);
+                        setSelectedRoleIds([]);
+                        setAvailableRoleIds([]);
+                        setAllRoleIdsForPipelines([]);
+                      }}
+                      className="text-[10px] text-gray-500 hover:text-gray-300"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-800 text-left text-[10px] uppercase tracking-wider text-gray-500">
+                        <th className="pb-1.5 pr-3">Pipeline</th>
+                        <th className="pb-1.5 pr-3">Location Name</th>
+                        <th className="pb-1.5">Location ID</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lassoPreview.map((row) => (
+                        <tr key={row.locationId} className="border-b border-gray-800/50">
+                          <td className="py-1.5 pr-3 text-gray-300">{row.pipelineShortName}</td>
+                          <td className="py-1.5 pr-3 text-gray-300">{row.locationName}</td>
+                          <td className="py-1.5 font-mono text-gray-400">{row.locationId}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {/* Cascading Filters */}
               <div className="space-y-3 rounded-lg border border-gray-800 bg-[#0f1117] p-4">

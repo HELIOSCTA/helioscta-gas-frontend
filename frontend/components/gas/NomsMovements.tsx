@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import MultiSelect from "@/components/ui/MultiSelect";
 
 /* ── Types ───────────────────────────────────────────────────────── */
 
@@ -8,11 +9,10 @@ interface LocationData {
   locationRoleId: number;
   locName: string;
   latestNom: number;
-  dod: number | null;
+  avg1d: number | null;
   avg7d: number | null;
-  avg30d: number | null;
+  delta1d: number | null;
   delta7d: number | null;
-  delta30d: number | null;
   sparkline: number[];
   metadata: Record<string, unknown>;
 }
@@ -24,9 +24,8 @@ interface PipelineGroup {
   regions: string[];
   latestDay: string;
   summaryLatest: number;
-  summaryDod: number | null;
+  summaryDelta1d: number | null;
   summaryDelta7d: number | null;
-  summaryDelta30d: number | null;
   locations: LocationData[];
 }
 
@@ -163,20 +162,17 @@ function LocationRow({ loc }: { loc: LocationData }) {
         <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-sm text-gray-200">
           {fmtNum(loc.latestNom)}
         </td>
-        <td className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-sm ${deltaClass(loc.dod)}`}>
-          {fmtDelta(loc.dod)}
+        <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-sm text-gray-400">
+          {fmtNum(loc.avg1d)}
         </td>
         <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-sm text-gray-400">
           {fmtNum(loc.avg7d)}
         </td>
-        <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-sm text-gray-400">
-          {fmtNum(loc.avg30d)}
+        <td className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-sm ${deltaClass(loc.delta1d)}`}>
+          {fmtDelta(loc.delta1d)}
         </td>
         <td className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-sm ${deltaClass(loc.delta7d)}`}>
           {fmtDelta(loc.delta7d)}
-        </td>
-        <td className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-sm ${deltaClass(loc.delta30d)}`}>
-          {fmtDelta(loc.delta30d)}
         </td>
         <td className="whitespace-nowrap px-3 py-2.5 text-right">
           <Sparkline data={loc.sparkline} />
@@ -184,7 +180,7 @@ function LocationRow({ loc }: { loc: LocationData }) {
       </tr>
       {expanded && (
         <tr className="border-b border-gray-800/40 bg-gray-900/60">
-          <td colSpan={8}>
+          <td colSpan={7}>
             <MetadataPanel metadata={loc.metadata} />
           </td>
         </tr>
@@ -224,11 +220,11 @@ function PipelineCard({ pipeline }: { pipeline: PipelineGroup }) {
           <span className="font-semibold text-gray-200">
             {fmtNum(pipeline.summaryLatest)}
           </span>
-          <span className={deltaClass(pipeline.summaryDod)}>
-            DoD {fmtDelta(pipeline.summaryDod)}
+          <span className={deltaClass(pipeline.summaryDelta1d)}>
+            Delta 1d {fmtDelta(pipeline.summaryDelta1d)}
           </span>
           <span className={deltaClass(pipeline.summaryDelta7d)}>
-            Δ7d {fmtDelta(pipeline.summaryDelta7d)}
+            Delta 7d {fmtDelta(pipeline.summaryDelta7d)}
           </span>
         </div>
 
@@ -248,19 +244,16 @@ function PipelineCard({ pipeline }: { pipeline: PipelineGroup }) {
                   Today
                 </th>
                 <th className="whitespace-nowrap px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-gray-600">
-                  DoD
+                  1d Avg
                 </th>
                 <th className="whitespace-nowrap px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-gray-600">
                   7d Avg
                 </th>
                 <th className="whitespace-nowrap px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-gray-600">
-                  30d Avg
+                  Delta 1d
                 </th>
                 <th className="whitespace-nowrap px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-gray-600">
-                  Δ 7d
-                </th>
-                <th className="whitespace-nowrap px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-gray-600">
-                  Δ 30d
+                  Delta 7d
                 </th>
                 <th className="whitespace-nowrap px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-gray-600">
                   7-day
@@ -283,15 +276,35 @@ function PipelineCard({ pipeline }: { pipeline: PipelineGroup }) {
 
 export default function NomsMovements() {
   const [pipelines, setPipelines] = useState<PipelineGroup[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [latestDay, setLatestDay] = useState<string>("");
+  const [allPipelines, setAllPipelines] = useState<string[]>([]);
+  const [selectedPipelines, setSelectedPipelines] = useState<string[]>([]);
+  const [thresholdInput, setThresholdInput] = useState<string>("0");
+  const [appliedThreshold, setAppliedThreshold] = useState<number | null>(null);
+  const [appliedPipelines, setAppliedPipelines] = useState<string[]>([]);
 
-  const fetchData = useCallback(async () => {
+  useEffect(() => {
+    fetch("/api/genscape-noms/filters")
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => setAllPipelines(data.pipelines ?? []))
+      .catch(() => setAllPipelines([]));
+  }, []);
+
+  const fetchData = useCallback(async (threshold: number, pipelineFilter: string[]) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/noms-movements");
+      const params = new URLSearchParams({ threshold: String(threshold) });
+      if (pipelineFilter.length > 0) {
+        params.set("pipeline", pipelineFilter.join(","));
+      }
+
+      const res = await fetch(`/api/noms-movements?${params.toString()}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
@@ -306,65 +319,103 @@ export default function NomsMovements() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const applyFilters = useCallback(() => {
+    const parsed = Number.parseFloat(thresholdInput);
+    const threshold = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    const nextPipelines = [...selectedPipelines];
 
-  /* Loading */
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-sm text-gray-500">
-          <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          Loading nomination movements...
-        </div>
-      </div>
-    );
-  }
+    setAppliedThreshold(threshold);
+    setAppliedPipelines(nextPipelines);
+    void fetchData(threshold, nextPipelines);
+  }, [fetchData, selectedPipelines, thresholdInput]);
 
-  /* Error */
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-        Failed to load data: {error}
-      </div>
-    );
-  }
-
-  /* Empty */
-  if (pipelines.length === 0) {
-    return (
-      <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-8 text-center text-sm text-gray-500">
-        No nomination data found.
-      </div>
-    );
-  }
-
+  const hasApplied = appliedThreshold !== null;
   const totalLocations = pipelines.reduce((s, p) => s + p.locations.length, 0);
 
   return (
     <div>
-      {/* Controls bar */}
-      <div className="mb-4 flex items-center justify-between text-xs text-gray-600">
-        <span>
-          {pipelines.length} pipeline{pipelines.length !== 1 ? "s" : ""} ·{" "}
-          {totalLocations} location{totalLocations !== 1 ? "s" : ""}
-        </span>
-        <span>
-          Latest gas day:{" "}
-          <span className="text-gray-400">{latestDay}</span>
-        </span>
+      <div className="mb-4 rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <MultiSelect
+            label="Pipeline"
+            options={allPipelines}
+            selected={selectedPipelines}
+            onChange={setSelectedPipelines}
+            placeholder="All pipelines..."
+            width="w-72"
+          />
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+              Threshold (abs Delta 1d or Delta 7d)
+            </label>
+            <input
+              type="number"
+              min={0}
+              step={1000}
+              value={thresholdInput}
+              onChange={(e) => setThresholdInput(e.target.value)}
+              className="w-40 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:border-gray-500 focus:outline-none"
+            />
+          </div>
+          <button
+            onClick={applyFilters}
+            disabled={loading}
+            className="rounded-md border border-blue-500/40 bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? "Loading..." : "Apply"}
+          </button>
+        </div>
+
+        {hasApplied && !loading && !error && (
+          <div className="mt-3 flex flex-wrap items-center justify-between text-xs text-gray-600">
+            <span>
+              {pipelines.length} pipeline{pipelines.length !== 1 ? "s" : ""} · {totalLocations} location{totalLocations !== 1 ? "s" : ""}
+            </span>
+            <span>
+              Pipelines: <span className="text-gray-400">{appliedPipelines.length > 0 ? appliedPipelines.length.toLocaleString() : "All"}</span> · Threshold:{" "}
+              <span className="text-gray-400">{appliedThreshold?.toLocaleString()}</span> · Latest gas day: <span className="text-gray-400">{latestDay}</span>
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Pipeline cards */}
-      <div className="space-y-2">
-        {pipelines.map((p) => (
-          <PipelineCard key={p.pipelineShortName} pipeline={p} />
-        ))}
-      </div>
+      {!hasApplied && (
+        <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-8 text-center text-sm text-gray-500">
+          Select pipelines and threshold, then click Apply to load nomination movements.
+        </div>
+      )}
+
+      {hasApplied && loading && (
+        <div className="flex items-center justify-center py-20">
+          <div className="flex items-center gap-3 text-sm text-gray-500">
+            <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Loading nomination movements...
+          </div>
+        </div>
+      )}
+
+      {hasApplied && !loading && error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          Failed to load data: {error}
+        </div>
+      )}
+
+      {hasApplied && !loading && !error && pipelines.length === 0 && (
+        <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-8 text-center text-sm text-gray-500">
+          No nomination data found for this filter selection.
+        </div>
+      )}
+
+      {hasApplied && !loading && !error && pipelines.length > 0 && (
+        <div className="space-y-2">
+          {pipelines.map((p) => (
+            <PipelineCard key={p.pipelineShortName} pipeline={p} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
