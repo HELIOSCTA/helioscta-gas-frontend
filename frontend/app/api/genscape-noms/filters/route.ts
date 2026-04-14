@@ -98,7 +98,7 @@ export async function GET(request: Request) {
 
       const baseWhere = `WHERE location_role_id IN (${roleInClause})${extraWhere}`;
 
-      const [pipelineRows, locNameRows, roleIdRows] = await Promise.all([
+      const [pipelineRows, locNameRows, roleIdRows, detailRows] = await Promise.all([
         mssqlQuery<{ pipeline_short_name: string }>(
           `SELECT DISTINCT pipeline_short_name FROM ${TABLE} ${baseWhere} ORDER BY pipeline_short_name`,
           params
@@ -111,11 +111,20 @@ export async function GET(request: Request) {
           `SELECT DISTINCT location_role_id FROM ${TABLE} ${baseWhere} ORDER BY location_role_id`,
           params
         ),
+        mssqlQuery<{ location_role_id: number; pipeline_short_name: string; loc_name: string }>(
+          `SELECT DISTINCT location_role_id, pipeline_short_name, loc_name FROM ${TABLE} ${baseWhere} ORDER BY location_role_id`,
+          params
+        ),
       ]);
 
       result.pipelines = pipelineRows.map((r) => r.pipeline_short_name).filter(Boolean);
       result.loc_names = locNameRows.map((r) => r.loc_name).filter(Boolean);
       result.location_role_ids = roleIdRows.map((r) => r.location_role_id).filter((v) => v != null);
+      result.role_id_details = detailRows.map((r) => ({
+        location_role_id: r.location_role_id,
+        pipeline: r.pipeline_short_name,
+        loc_name: r.loc_name,
+      }));
 
       return NextResponse.json(result, {
         headers: {
@@ -150,33 +159,40 @@ export async function GET(request: Request) {
             return `@l${i}`;
           });
           const locNameInClause = lPlaceholders.join(", ");
+          const where = `WHERE pipeline_short_name IN (${pipelineInClause}) AND loc_name IN (${locNameInClause})`;
 
-          const roleRows = await mssqlQuery<{ location_role_id: number }>(
-            `SELECT DISTINCT location_role_id
-             FROM ${TABLE}
-             WHERE pipeline_short_name IN (${pipelineInClause})
-               AND loc_name IN (${locNameInClause})
-             ORDER BY location_role_id`,
-            params
-          );
+          const [roleRows, detailRows] = await Promise.all([
+            mssqlQuery<{ location_role_id: number }>(
+              `SELECT DISTINCT location_role_id FROM ${TABLE} ${where} ORDER BY location_role_id`,
+              params
+            ),
+            mssqlQuery<{ location_role_id: number; pipeline_short_name: string; loc_name: string }>(
+              `SELECT DISTINCT location_role_id, pipeline_short_name, loc_name FROM ${TABLE} ${where} ORDER BY pipeline_short_name, loc_name`,
+              params
+            ),
+          ]);
           result.location_role_ids = roleRows
             .map((r) => r.location_role_id)
             .filter((v) => v != null);
+          result.role_id_details = detailRows.map((r) => ({
+            location_role_id: r.location_role_id,
+            pipeline: r.pipeline_short_name,
+            loc_name: r.loc_name,
+          }));
         } else {
           // Cascading: fetch loc_names + location_role_ids for selected pipelines
-          const [locRows, roleRows] = await Promise.all([
+          const where = `WHERE pipeline_short_name IN (${pipelineInClause})`;
+          const [locRows, roleRows, detailRows] = await Promise.all([
             mssqlQuery<{ loc_name: string }>(
-              `SELECT DISTINCT loc_name
-               FROM ${TABLE}
-               WHERE pipeline_short_name IN (${pipelineInClause})
-               ORDER BY loc_name`,
+              `SELECT DISTINCT loc_name FROM ${TABLE} ${where} ORDER BY loc_name`,
               params
             ),
             mssqlQuery<{ location_role_id: number }>(
-              `SELECT DISTINCT location_role_id
-               FROM ${TABLE}
-               WHERE pipeline_short_name IN (${pipelineInClause})
-               ORDER BY location_role_id`,
+              `SELECT DISTINCT location_role_id FROM ${TABLE} ${where} ORDER BY location_role_id`,
+              params
+            ),
+            mssqlQuery<{ location_role_id: number; pipeline_short_name: string; loc_name: string }>(
+              `SELECT DISTINCT location_role_id, pipeline_short_name, loc_name FROM ${TABLE} ${where} ORDER BY pipeline_short_name, loc_name`,
               params
             ),
           ]);
@@ -185,6 +201,11 @@ export async function GET(request: Request) {
           result.location_role_ids = roleRows
             .map((r) => r.location_role_id)
             .filter((v) => v != null);
+          result.role_id_details = detailRows.map((r) => ({
+            location_role_id: r.location_role_id,
+            pipeline: r.pipeline_short_name,
+            loc_name: r.loc_name,
+          }));
         }
       }
     }

@@ -48,6 +48,12 @@ interface LassoPreviewRow {
   locationId: number;
 }
 
+interface RoleIdDetail {
+  location_role_id: number;
+  pipeline: string;
+  loc_name: string;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -76,10 +82,15 @@ export default function WatchlistEditor() {
   const [selectedPipelines, setSelectedPipelines] = useState<string[]>([]);
   const [availableLocNames, setAvailableLocNames] = useState<string[]>([]);
   const [selectedLocNames, setSelectedLocNames] = useState<string[]>([]);
-  const [availableRoleIds, setAvailableRoleIds] = useState<string[]>([]);
-  const [allRoleIdsForPipelines, setAllRoleIdsForPipelines] = useState<string[]>([]);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [filterLoading, setFilterLoading] = useState(false);
+
+  // Current points detail state
+  const [pointDetails, setPointDetails] = useState<RoleIdDetail[]>([]);
+
+  // Browse results from cascading filters
+  const [browseResults, setBrowseResults] = useState<RoleIdDetail[]>([]);
+
 
   /* ---- Fetch watchlists ---- */
   const fetchWatchlists = useCallback(async () => {
@@ -123,18 +134,15 @@ export default function WatchlistEditor() {
   useEffect(() => {
     if (selectedPipelines.length === 0) {
       setAvailableLocNames([]);
-      setAllRoleIdsForPipelines([]);
-      setAvailableRoleIds([]);
-      // Don't clear selectedRoleIds — they accumulate across pipeline browsing
+      setBrowseResults([]);
       return;
     }
 
     const cacheKey = [...selectedPipelines].sort().join(",");
-    const cached = cacheGet<{ loc_names: string[]; role_ids: string[] }>(cacheKey);
+    const cached = cacheGet<{ loc_names: string[]; details: RoleIdDetail[] }>(cacheKey);
     if (cached) {
       setAvailableLocNames(cached.loc_names);
-      setAllRoleIdsForPipelines(cached.role_ids);
-      setAvailableRoleIds(cached.role_ids);
+      setBrowseResults(cached.details ?? []);
       return;
     }
 
@@ -149,33 +157,35 @@ export default function WatchlistEditor() {
       })
       .then((data) => {
         const newLocNames: string[] = data.loc_names ?? [];
-        const newRoleIds: string[] = (data.location_role_ids ?? []).map(String);
+        const details: RoleIdDetail[] = data.role_id_details ?? [];
 
-        cacheSet(cacheKey, { loc_names: newLocNames, role_ids: newRoleIds });
+        cacheSet(cacheKey, { loc_names: newLocNames, details });
 
         setAvailableLocNames(newLocNames);
-        setAllRoleIdsForPipelines(newRoleIds);
-        setAvailableRoleIds(newRoleIds);
+        setBrowseResults(details);
       })
       .catch(() => {})
       .finally(() => setFilterLoading(false));
   }, [selectedPipelines]);
 
-  /* ---- Cascade: loc names → refine role IDs ---- */
+  /* ---- Cascade: loc names → refine browse results ---- */
   useEffect(() => {
     if (selectedPipelines.length === 0) return;
 
     if (selectedLocNames.length === 0) {
-      setAvailableRoleIds(allRoleIdsForPipelines);
+      // Reset browse results to the full pipeline-level results
+      const cacheKey = [...selectedPipelines].sort().join(",");
+      const cached = cacheGet<{ details: RoleIdDetail[] }>(cacheKey);
+      if (cached?.details) setBrowseResults(cached.details);
       return;
     }
 
     const sortedPipelines = [...selectedPipelines].sort().join(",");
     const sortedLocNames = [...selectedLocNames].sort().join(",");
     const cacheKey = `${sortedPipelines}|${sortedLocNames}`;
-    const cached = cacheGet<string[]>(cacheKey);
+    const cached = cacheGet<{ details: RoleIdDetail[] }>(cacheKey);
     if (cached) {
-      setAvailableRoleIds(cached);
+      setBrowseResults(cached.details ?? []);
       return;
     }
 
@@ -190,22 +200,55 @@ export default function WatchlistEditor() {
         return r.json();
       })
       .then((data) => {
-        const newRoleIds: string[] = (data.location_role_ids ?? []).map(String);
-        cacheSet(cacheKey, newRoleIds);
-        setAvailableRoleIds(newRoleIds);
+        const details: RoleIdDetail[] = data.role_id_details ?? [];
+        cacheSet(cacheKey, { details });
+        setBrowseResults(details);
       })
       .catch(() => {})
       .finally(() => setFilterLoading(false));
-  }, [selectedLocNames, selectedPipelines, allRoleIdsForPipelines]);
+  }, [selectedLocNames, selectedPipelines]);
+
+  /* ---- Sync pointDetails when selectedRoleIds gains IDs from filters/lasso ---- */
+  const resolvedIdsRef = useRef(new Set<number>());
+  useEffect(() => {
+    const missing = selectedRoleIds
+      .map(Number)
+      .filter((id) => id > 0 && !resolvedIdsRef.current.has(id));
+    if (missing.length === 0) return;
+
+    // Mark as in-flight immediately to prevent duplicate fetches
+    for (const id of missing) resolvedIdsRef.current.add(id);
+
+    const params = new URLSearchParams({ locationRoleIds: missing.join(",") });
+    fetch(`/api/genscape-noms/filters?${params}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        const details: RoleIdDetail[] = data.role_id_details ?? [];
+        if (details.length > 0) {
+          setPointDetails((prev) => {
+            const existingIds = new Set(prev.map((d) => d.location_role_id));
+            const newDetails = details.filter((d) => !existingIds.has(d.location_role_id));
+            return newDetails.length > 0 ? [...prev, ...newDetails] : prev;
+          });
+        }
+      })
+      .catch(() => {
+        // Remove from resolved set so they can be retried
+        for (const id of missing) resolvedIdsRef.current.delete(id);
+      });
+  }, [selectedRoleIds]);
 
   /* ---- Reset filter browse state ---- */
   const resetFilters = useCallback(() => {
     setSelectedPipelines([]);
     setSelectedLocNames([]);
     setAvailableLocNames([]);
-    setAvailableRoleIds([]);
-    setAllRoleIdsForPipelines([]);
-    setSelectedRoleIds([]);
+        setSelectedRoleIds([]);
+    setPointDetails([]);
+    resolvedIdsRef.current = new Set();
   }, []);
 
   /* ---- Select existing watchlist: load its filter context ---- */
@@ -231,18 +274,17 @@ export default function WatchlistEditor() {
       .then((data) => {
         const pipelines: string[] = data.pipelines ?? [];
         const locNames: string[] = data.loc_names ?? [];
-        const roleIds: string[] = (data.location_role_ids ?? []).map(String);
+        const details: RoleIdDetail[] = data.role_id_details ?? [];
 
         setAllPipelines((prev) => {
-          // Merge in any pipelines from this watchlist that aren't in the full list
           const merged = new Set([...prev, ...pipelines]);
           return Array.from(merged).sort();
         });
         setSelectedPipelines(pipelines);
         setAvailableLocNames(locNames);
         setSelectedLocNames([]);
-        setAvailableRoleIds(roleIds);
-        setAllRoleIdsForPipelines(roleIds);
+        setBrowseResults(details);
+        setPointDetails(details);
       })
       .catch(() => {})
       .finally(() => setFilterLoading(false));
@@ -311,8 +353,6 @@ export default function WatchlistEditor() {
         setSelectedPipelines(pipelines);
         setSelectedLocNames([]);
         setAvailableLocNames(locNames);
-        setAvailableRoleIds(roleIds);
-        setAllRoleIdsForPipelines(roleIds);
       } catch {
         setLassoError("Failed to resolve location IDs. Please try again.");
       } finally {
@@ -351,6 +391,44 @@ export default function WatchlistEditor() {
     },
     [applyLassoText]
   );
+
+  /* ---- Add a point from browse results ---- */
+  const handleAddPoint = useCallback((detail: RoleIdDetail) => {
+    const idStr = String(detail.location_role_id);
+    setSelectedRoleIds((prev) => prev.includes(idStr) ? prev : [...prev, idStr]);
+    setPointDetails((prev) => {
+      if (prev.some((d) => d.location_role_id === detail.location_role_id)) return prev;
+      return [...prev, detail];
+    });
+  }, []);
+
+  /* ---- Add all browse results ---- */
+  const handleAddAllBrowse = useCallback(() => {
+    const selectedSet = new Set(selectedRoleIds);
+    const newIds = browseResults
+      .filter((d) => !selectedSet.has(String(d.location_role_id)))
+      .map((d) => String(d.location_role_id));
+    if (newIds.length === 0) return;
+    setSelectedRoleIds((prev) => [...prev, ...newIds]);
+    setPointDetails((prev) => {
+      const existingIds = new Set(prev.map((d) => d.location_role_id));
+      const newDetails = browseResults.filter((d) => !existingIds.has(d.location_role_id));
+      return newDetails.length > 0 ? [...prev, ...newDetails] : prev;
+    });
+  }, [browseResults, selectedRoleIds]);
+
+  /* ---- Remove a single point ---- */
+  const handleRemovePoint = useCallback((roleId: number) => {
+    const idStr = String(roleId);
+    setSelectedRoleIds((prev) => prev.filter((id) => id !== idStr));
+    setPointDetails((prev) => prev.filter((d) => d.location_role_id !== roleId));
+  }, []);
+
+  /* ---- Remove all points ---- */
+  const handleRemoveAllPoints = useCallback(() => {
+    setSelectedRoleIds([]);
+    setPointDetails([]);
+  }, []);
 
   /* ---- New watchlist ---- */
   const handleNew = useCallback(() => {
@@ -635,8 +713,6 @@ export default function WatchlistEditor() {
                       onClick={() => {
                         setLassoPreview([]);
                         setSelectedRoleIds([]);
-                        setAvailableRoleIds([]);
-                        setAllRoleIdsForPipelines([]);
                       }}
                       className="text-[10px] text-gray-500 hover:text-gray-300"
                     >
@@ -667,7 +743,7 @@ export default function WatchlistEditor() {
               {/* Cascading Filters */}
               <div className="space-y-3 rounded-lg border border-gray-800 bg-[#0f1117] p-4">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-                  Browse Locations
+                  Browse &amp; Add Locations
                 </p>
 
                 <div className="flex flex-wrap items-end gap-4">
@@ -679,49 +755,141 @@ export default function WatchlistEditor() {
                     placeholder="Select pipeline..."
                     width="w-64"
                   />
-                </div>
-
-                {selectedPipelines.length > 0 && (
-                  <div className="flex flex-wrap items-end gap-4 pt-2 border-t border-gray-800">
-                    {filterLoading && availableLocNames.length === 0 ? (
-                      <p className="text-xs text-gray-500 py-1.5">Loading filter options...</p>
-                    ) : (
-                      <>
+                  {selectedPipelines.length > 0 && (
+                    <>
+                      {filterLoading && availableLocNames.length === 0 ? (
+                        <p className="text-xs text-gray-500 py-1.5">Loading...</p>
+                      ) : (
                         <MultiSelect
-                          label="Location Name"
+                          label="Location Name (optional)"
                           options={availableLocNames}
                           selected={selectedLocNames}
                           onChange={setSelectedLocNames}
                           placeholder="All locations..."
                           width="w-64"
                         />
-                        <div className="relative">
-                          <MultiSelect
-                            label="Location Role ID"
-                            options={availableRoleIds}
-                            selected={selectedRoleIds}
-                            onChange={setSelectedRoleIds}
-                            placeholder="Select role IDs..."
-                            width="w-56"
-                          />
-                          {filterLoading && (
-                            <p className="absolute -bottom-5 left-0 text-[10px] text-gray-500">
-                              Updating...
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    )}
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Browse Results Table */}
+                {selectedPipelines.length > 0 && browseResults.length > 0 && (
+                  <div className="pt-2 border-t border-gray-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] text-gray-500">
+                        {browseResults.length} result{browseResults.length !== 1 ? "s" : ""}
+                        {filterLoading && " — updating..."}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleAddAllBrowse}
+                        className="text-[10px] font-medium text-purple-400 transition-colors hover:text-purple-300"
+                      >
+                        Add All
+                      </button>
+                    </div>
+                    <div className="max-h-56 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-800 text-left text-[10px] uppercase tracking-wider text-gray-500">
+                            <th className="pb-1.5 pr-3">Pipeline</th>
+                            <th className="pb-1.5 pr-3">Location Name</th>
+                            <th className="pb-1.5 pr-3">Role ID</th>
+                            <th className="pb-1.5 w-16"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {browseResults.map((d) => {
+                            const isAdded = selectedRoleIds.includes(String(d.location_role_id));
+                            return (
+                              <tr key={`${d.location_role_id}-${d.pipeline}-${d.loc_name}`} className="border-b border-gray-800/50">
+                                <td className="py-1.5 pr-3 text-gray-400">{d.pipeline}</td>
+                                <td className="py-1.5 pr-3 text-gray-400">{d.loc_name}</td>
+                                <td className="py-1.5 pr-3 font-mono text-gray-300">{d.location_role_id}</td>
+                                <td className="py-1.5">
+                                  {isAdded ? (
+                                    <span className="text-[10px] font-medium text-green-500/70">Added</span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddPoint(d)}
+                                      className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-purple-400 transition-colors hover:bg-purple-500/10 hover:text-purple-300"
+                                    >
+                                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                      </svg>
+                                      Add
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
+                )}
+
+                {selectedPipelines.length > 0 && browseResults.length === 0 && !filterLoading && (
+                  <p className="pt-2 border-t border-gray-800 text-xs text-gray-600">No results for this filter combination.</p>
                 )}
               </div>
 
-              {/* Selected summary */}
-              <p className="text-xs text-gray-500">
-                {selectedRoleIds.length > 0
-                  ? `${selectedRoleIds.length} role ID${selectedRoleIds.length !== 1 ? "s" : ""} selected`
-                  : "No role IDs selected"}
-              </p>
+              {/* Current Points Table */}
+              {pointDetails.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-gray-800 bg-[#0f1117] p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                      Current Points ({pointDetails.filter((d) => selectedRoleIds.includes(String(d.location_role_id))).length})
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleRemoveAllPoints}
+                      className="text-[10px] text-red-400/70 transition-colors hover:text-red-400"
+                    >
+                      Remove All
+                    </button>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-800 text-left text-[10px] uppercase tracking-wider text-gray-500">
+                          <th className="pb-1.5 pr-3">Pipeline</th>
+                          <th className="pb-1.5 pr-3">Location Name</th>
+                          <th className="pb-1.5 pr-3">Location Role ID</th>
+                          <th className="pb-1.5 w-8"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pointDetails
+                          .filter((d) => selectedRoleIds.includes(String(d.location_role_id)))
+                          .map((d) => (
+                          <tr key={`${d.location_role_id}-${d.pipeline}-${d.loc_name}`} className="border-b border-gray-800/50 group transition-colors hover:bg-red-500/5">
+                            <td className="py-1.5 pr-3 text-gray-400">{d.pipeline}</td>
+                            <td className="py-1.5 pr-3 text-gray-400">{d.loc_name}</td>
+                            <td className="py-1.5 pr-3 font-mono text-gray-300">{d.location_role_id}</td>
+                            <td className="py-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePoint(d.location_role_id)}
+                                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-gray-600 transition-colors group-hover:text-red-400"
+                                title="Remove from watchlist"
+                              >
+                                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                <span className="hidden text-[10px] font-medium group-hover:inline">Remove</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex items-center gap-3 pt-2">
