@@ -8,7 +8,10 @@ import KrsWatchlistTable from "@/components/gas/KrsWatchlistTable";
 import WatchlistEditor from "@/components/gas/WatchlistEditor";
 import NomsMovements from "@/components/gas/NomsMovements";
 import type { Watchlist } from "@/lib/watchlists";
-import { GENSCAPE_ENABLED, ICE_CASH_ENABLED } from "@/lib/feature-flags";
+import {
+  GENSCAPE_ENABLED,
+  ICE_CASH_ENABLED,
+} from "@/lib/feature-flags";
 
 const CashPricingMatrix = dynamic(() => import("@/components/gas/CashPricingMatrix"), {
   loading: () => <p className="text-sm text-gray-500">Loading cash pricing matrix...</p>,
@@ -121,7 +124,6 @@ function isFeatureEnabled(section: FeatureSection): boolean {
   ) {
     return GENSCAPE_ENABLED;
   }
-
   return ICE_CASH_ENABLED;
 }
 
@@ -220,7 +222,10 @@ export default function HomePageClient() {
       <Sidebar
         activeSection={activeSection}
         onSectionChange={setActiveSection}
-        enabled={{ genscape: GENSCAPE_ENABLED, iceCash: ICE_CASH_ENABLED }}
+        enabled={{
+          genscape: GENSCAPE_ENABLED,
+          iceCash: ICE_CASH_ENABLED,
+        }}
       />
 
       <div className="flex-1 overflow-auto">

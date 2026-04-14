@@ -5,4 +5,9 @@
     "terminal.integrated.env.windows": {
         "CONDA_DEFAULT_ENV": "helioscta-gas-frontend"
     },
+    "workbench.editorAssociations": {
+        "*.parquet": "dbcode.dataFileViewer",
+        "*.csv": "duckdb.dataFileViewer",
+        "*.tsv": "duckdb.dataFileViewer"
+    },
 }
