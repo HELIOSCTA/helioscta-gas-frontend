@@ -215,7 +215,7 @@ function HomeCards({
 }
 
 export default function HomePageClient() {
-  const [activeSection, setActiveSection] = useState<ActiveSection>("pjm-load-forecast");
+  const [activeSection, setActiveSection] = useState<ActiveSection>("home");
   const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
   const [activeWatchlist, setActiveWatchlist] = useState<Watchlist | null>(null);
   const [watchlistsLoading, setWatchlistsLoading] = useState(true);
@@ -257,7 +257,7 @@ export default function HomePageClient() {
 
   useEffect(() => {
     if (activeSection !== "home" && !isFeatureEnabled(activeSection)) {
-      setActiveSection("pjm-load-forecast");
+      setActiveSection("home");
     }
   }, [activeSection]);
 
@@ -284,6 +284,14 @@ export default function HomePageClient() {
             <h1 className="text-2xl font-bold text-gray-100 sm:text-3xl">{meta.title}</h1>
             <p className="mt-2 text-sm text-gray-500">{meta.subtitle}</p>
           </div>
+          {activeSection === "home" &&
+            (homeCards.length > 0 ? (
+              <HomeCards cards={homeCards} onNavigate={setActiveSection} />
+            ) : (
+              <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 text-sm text-gray-500">
+                No features are enabled.
+              </div>
+            ))}
           {activeSection === "genscape-noms" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
               <GenscapeNomsTable />
