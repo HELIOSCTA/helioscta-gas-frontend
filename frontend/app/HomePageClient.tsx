@@ -24,6 +24,11 @@ const PjmLmpPrices = dynamic(() => import("@/components/pjm/PjmLmpPrices"), {
   ssr: false,
 });
 
+const PjmLoadForecast = dynamic(() => import("@/components/pjm/PjmLoadForecast"), {
+  loading: () => <p className="text-sm text-gray-500">Loading PJM load forecast...</p>,
+  ssr: false,
+});
+
 const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; footer: string }> = {
   home: {
     title: "Dashboard",
@@ -58,6 +63,11 @@ const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; foo
   "pjm-lmp-prices": {
     title: "PJM LMP Prices",
     subtitle: "Hourly locational marginal prices across PJM hubs — day-ahead, real-time, and DA-RT spread.",
+    footer: "PJM Power | Source: Azure Blob Storage (Parquet)",
+  },
+  "pjm-load-forecast": {
+    title: "PJM Load Forecast",
+    subtitle: "Seven-day hourly load forecast by region — latest revision and historical vintages.",
     footer: "PJM Power | Source: Azure Blob Storage (Parquet)",
   },
 };
@@ -114,6 +124,14 @@ const HOME_CARDS: HomeCard[] = [
     iconPath: "M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z",
     accentColor: "amber",
   },
+  {
+    id: "pjm-load-forecast",
+    title: "PJM Load Forecast",
+    description: "Seven-day hourly load forecast by region — RTO, Mid-Atlantic, Western, and Southern.",
+    source: "Azure Blob (Parquet)",
+    iconPath: "M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z",
+    accentColor: "amber",
+  },
 ];
 
 const ACCENT_CLASSES: Record<
@@ -149,7 +167,7 @@ function isFeatureEnabled(section: FeatureSection): boolean {
   ) {
     return GENSCAPE_ENABLED;
   }
-  if (section === "pjm-lmp-prices") {
+  if (section === "pjm-lmp-prices" || section === "pjm-load-forecast") {
     return PJM_ENABLED;
   }
   return ICE_CASH_ENABLED;
@@ -197,7 +215,7 @@ function HomeCards({
 }
 
 export default function HomePageClient() {
-  const [activeSection, setActiveSection] = useState<ActiveSection>("home");
+  const [activeSection, setActiveSection] = useState<ActiveSection>("pjm-load-forecast");
   const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
   const [activeWatchlist, setActiveWatchlist] = useState<Watchlist | null>(null);
   const [watchlistsLoading, setWatchlistsLoading] = useState(true);
@@ -239,7 +257,7 @@ export default function HomePageClient() {
 
   useEffect(() => {
     if (activeSection !== "home" && !isFeatureEnabled(activeSection)) {
-      setActiveSection("home");
+      setActiveSection("pjm-load-forecast");
     }
   }, [activeSection]);
 
@@ -266,14 +284,6 @@ export default function HomePageClient() {
             <h1 className="text-2xl font-bold text-gray-100 sm:text-3xl">{meta.title}</h1>
             <p className="mt-2 text-sm text-gray-500">{meta.subtitle}</p>
           </div>
-          {activeSection === "home" &&
-            (homeCards.length > 0 ? (
-              <HomeCards cards={homeCards} onNavigate={setActiveSection} />
-            ) : (
-              <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 text-sm text-gray-500">
-                No features are enabled.
-              </div>
-            ))}
           {activeSection === "genscape-noms" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
               <GenscapeNomsTable />
@@ -330,6 +340,11 @@ export default function HomePageClient() {
           {activeSection === "pjm-lmp-prices" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
               <PjmLmpPrices />
+            </div>
+          )}
+          {activeSection === "pjm-load-forecast" && (
+            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+              <PjmLoadForecast />
             </div>
           )}
           <p className="mt-6 text-center text-xs text-gray-600">{meta.footer}</p>

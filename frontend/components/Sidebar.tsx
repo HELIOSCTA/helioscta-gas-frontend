@@ -9,7 +9,8 @@ export type ActiveSection =
   | "watchlists"
   | "watchlist-editor"
   | "cash-pricing-matrix"
-  | "pjm-lmp-prices";
+  | "pjm-lmp-prices"
+  | "pjm-load-forecast";
 
 interface SidebarProps {
   activeSection: ActiveSection;
@@ -66,6 +67,7 @@ function getSections(enabled: SidebarProps["enabled"]): TopSection[] {
       label: "PJM POWER",
       navItems: [
         { id: "pjm-lmp-prices", label: "LMP Prices", disabled: true },
+        { id: "pjm-load-forecast", label: "Load Forecast" },
       ],
     });
   }
@@ -98,20 +100,6 @@ export default function Sidebar({
       </div>
 
       <div className="mx-3 h-px bg-gray-800" />
-
-      {/* Home */}
-      <div className="px-2 pt-3 pb-1">
-        <button
-          onClick={() => onSectionChange("home")}
-          className={`flex w-full items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-            activeSection === "home"
-              ? "bg-gray-800/60 text-white"
-              : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
-          }`}
-        >
-          Home
-        </button>
-      </div>
 
       {/* Collapsible Sections */}
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
