@@ -46,7 +46,7 @@ const MARKET_LABEL: Record<Market, string> = {
 };
 const MARKET_COLOR: Record<Market, string> = {
   da: "#60a5fa",
-  rt: "#fb923c",
+  rt: "#ef4444",
   dart: "#facc15",
 };
 
@@ -744,7 +744,7 @@ function ComponentSection({
                   {!hiddenSeries.has("DA") && (
                     <Line
                       yAxisId="left"
-                      type="monotone"
+                      type="stepAfter"
                       dataKey="DA"
                       stroke={MARKET_COLOR.da}
                       strokeWidth={2}
@@ -757,7 +757,7 @@ function ComponentSection({
                   {!hiddenSeries.has("RT") && (
                     <Line
                       yAxisId="left"
-                      type="monotone"
+                      type="stepAfter"
                       dataKey="RT"
                       stroke={MARKET_COLOR.rt}
                       strokeWidth={2}
