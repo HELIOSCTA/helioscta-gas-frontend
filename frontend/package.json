@@ -12,7 +12,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.31.0",
     "@types/pg": "^8.11.10",
+    "hyparquet": "^1.25.6",
     "mssql": "^11.0.1",
     "next": "^15.5.12",
     "next-auth": "^5.0.0-beta.30",

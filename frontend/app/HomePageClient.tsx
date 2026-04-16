@@ -11,10 +11,16 @@ import type { Watchlist } from "@/lib/watchlists";
 import {
   GENSCAPE_ENABLED,
   ICE_CASH_ENABLED,
+  PJM_ENABLED,
 } from "@/lib/feature-flags";
 
 const CashPricingMatrix = dynamic(() => import("@/components/gas/CashPricingMatrix"), {
   loading: () => <p className="text-sm text-gray-500">Loading cash pricing matrix...</p>,
+  ssr: false,
+});
+
+const PjmLmpPrices = dynamic(() => import("@/components/pjm/PjmLmpPrices"), {
+  loading: () => <p className="text-sm text-gray-500">Loading PJM LMP prices...</p>,
   ssr: false,
 });
 
@@ -48,6 +54,11 @@ const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; foo
     title: "Cash Pricing Matrix",
     subtitle: "Current-month and seasonal NYMEX cash-vs-Henry-Hub futures matrix across key US gas hubs.",
     footer: "ICE Cash Prices | Source: ICE / Azure PostgreSQL",
+  },
+  "pjm-lmp-prices": {
+    title: "PJM LMP Prices",
+    subtitle: "Hourly locational marginal prices across PJM hubs — day-ahead, real-time, and DA-RT spread.",
+    footer: "PJM Power | Source: Azure Blob Storage (Parquet)",
   },
 };
 
@@ -95,6 +106,14 @@ const HOME_CARDS: HomeCard[] = [
     iconPath: "M3.375 19.5h17.25m-17.25 0A1.125 1.125 0 012.25 18.375V5.625A1.125 1.125 0 013.375 4.5h17.25A1.125 1.125 0 0121.75 5.625v12.75A1.125 1.125 0 0120.625 19.5m-17.25 0h17.25M6 9h.008v.008H6V9zm0 3h.008v.008H6V12zm0 3h.008v.008H6V15zm3-6h.008v.008H9V9zm0 3h.008v.008H9V12zm0 3h.008v.008H9V15zm3-6h.008v.008H12V9zm0 3h.008v.008H12V12zm0 3h.008v.008H12V15zm3-6h.008v.008H15V9zm0 3h.008v.008H15V12zm0 3h.008v.008H15V15zm3-6h.008v.008H18V9zm0 3h.008v.008H18V12zm0 3h.008v.008H18V15z",
     accentColor: "cyan",
   },
+  {
+    id: "pjm-lmp-prices",
+    title: "PJM LMP Prices",
+    description: "Hourly locational marginal prices across PJM hubs — DA, RT, and DART spread.",
+    source: "Azure Blob (Parquet)",
+    iconPath: "M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z",
+    accentColor: "amber",
+  },
 ];
 
 const ACCENT_CLASSES: Record<
@@ -113,6 +132,12 @@ const ACCENT_CLASSES: Record<
     border: "hover:border-cyan-500/40",
     shadow: "hover:shadow-cyan-500/5",
   },
+  amber: {
+    bg: "bg-amber-500/10",
+    icon: "text-amber-400",
+    border: "hover:border-amber-500/40",
+    shadow: "hover:shadow-amber-500/5",
+  },
 };
 
 function isFeatureEnabled(section: FeatureSection): boolean {
@@ -123,6 +148,9 @@ function isFeatureEnabled(section: FeatureSection): boolean {
     section === "watchlist-editor"
   ) {
     return GENSCAPE_ENABLED;
+  }
+  if (section === "pjm-lmp-prices") {
+    return PJM_ENABLED;
   }
   return ICE_CASH_ENABLED;
 }
@@ -225,6 +253,7 @@ export default function HomePageClient() {
         enabled={{
           genscape: GENSCAPE_ENABLED,
           iceCash: ICE_CASH_ENABLED,
+          pjm: PJM_ENABLED,
         }}
       />
 
@@ -296,6 +325,11 @@ export default function HomePageClient() {
           {activeSection === "cash-pricing-matrix" && (
             <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
               <CashPricingMatrix />
+            </div>
+          )}
+          {activeSection === "pjm-lmp-prices" && (
+            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+              <PjmLmpPrices />
             </div>
           )}
           <p className="mt-6 text-center text-xs text-gray-600">{meta.footer}</p>

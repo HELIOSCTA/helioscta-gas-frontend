@@ -8,7 +8,8 @@ export type ActiveSection =
   | "noms-movements"
   | "watchlists"
   | "watchlist-editor"
-  | "cash-pricing-matrix";
+  | "cash-pricing-matrix"
+  | "pjm-lmp-prices";
 
 interface SidebarProps {
   activeSection: ActiveSection;
@@ -16,6 +17,7 @@ interface SidebarProps {
   enabled: {
     genscape: boolean;
     iceCash: boolean;
+    pjm: boolean;
   };
 }
 
@@ -23,6 +25,7 @@ interface NavItem {
   id: ActiveSection;
   label: string;
   group?: string;
+  disabled?: boolean;
 }
 
 interface TopSection {
@@ -34,25 +37,35 @@ interface TopSection {
 function getSections(enabled: SidebarProps["enabled"]): TopSection[] {
   const sections: TopSection[] = [];
 
+  if (enabled.iceCash) {
+    sections.push({
+      key: "ice",
+      label: "PRICING",
+      navItems: [
+        { id: "cash-pricing-matrix", label: "Cash Pricing Matrix" },
+      ],
+    });
+  }
+
   if (enabled.genscape) {
     sections.push({
       key: "genscape",
       label: "GENSCAPE",
       navItems: [
-        { id: "watchlists", label: "Watchlists", group: "Watchlists" },
-        { id: "watchlist-editor", label: "Manage Watchlists", group: "Watchlists" },
-        { id: "genscape-noms", label: "Historical Noms", group: "Noms" },
-        { id: "noms-movements", label: "Nom Movements", group: "Noms" },
+        { id: "watchlist-editor", label: "Manage Watchlists" },
+        { id: "watchlists", label: "Watchlists" },
+        { id: "genscape-noms", label: "Historical Noms" },
+        { id: "noms-movements", label: "Nom Movements", disabled: true },
       ],
     });
   }
 
-  if (enabled.iceCash) {
+  if (enabled.pjm) {
     sections.push({
-      key: "ice",
-      label: "ICE CASH PRICES",
+      key: "pjm",
+      label: "PJM POWER",
       navItems: [
-        { id: "cash-pricing-matrix", label: "Cash Pricing Matrix" },
+        { id: "pjm-lmp-prices", label: "LMP Prices", disabled: true },
       ],
     });
   }
@@ -145,11 +158,14 @@ export default function Sidebar({
                           </p>
                         )}
                         <button
-                          onClick={() => onSectionChange(item.id)}
+                          onClick={() => !item.disabled && onSectionChange(item.id)}
+                          disabled={item.disabled}
                           className={`flex w-full items-center rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                            isActive
-                              ? "bg-gray-800/60 text-white"
-                              : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
+                            item.disabled
+                              ? "cursor-not-allowed text-gray-600"
+                              : isActive
+                                ? "bg-gray-800/60 text-white"
+                                : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
                           }`}
                         >
                           {item.label}
