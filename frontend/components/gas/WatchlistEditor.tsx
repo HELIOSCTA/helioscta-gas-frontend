@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import MultiSelect from "@/components/ui/MultiSelect";
 import {
   extractLocationIds,
@@ -11,7 +11,7 @@ import {
 /*  sessionStorage cache helpers                                       */
 /* ------------------------------------------------------------------ */
 
-const CACHE_PREFIX = "genscape-filters:";
+const CACHE_PREFIX = "genscape-filters-v3:";
 
 function cacheGet<T>(key: string): T | null {
   try {
@@ -51,7 +51,11 @@ interface LassoPreviewRow {
 interface RoleIdDetail {
   location_role_id: number;
   pipeline: string;
+  tariff_zone: string;
   loc_name: string;
+  location_id: number;
+  facility: string;
+  role: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -88,9 +92,50 @@ export default function WatchlistEditor() {
   // Current points detail state
   const [pointDetails, setPointDetails] = useState<RoleIdDetail[]>([]);
 
+  // Browse search filter (loc name or loc id)
+  const [browseSearch, setBrowseSearch] = useState("");
+
   // Browse results from cascading filters
   const [browseResults, setBrowseResults] = useState<RoleIdDetail[]>([]);
 
+  // Filtered browse results (by loc ID search)
+  const filteredBrowseResults = useMemo(() => {
+    const q = browseSearch.trim();
+    if (!q) return browseResults;
+    return browseResults.filter(
+      (d) => d.location_id != null && String(d.location_id).includes(q)
+    );
+  }, [browseResults, browseSearch]);
+
+  /* ---- Resizable detail table columns ---- */
+  const DETAIL_COL_DEFAULTS = [80, 160, 200, 70, 80, 120, 80, 60]; // Pipeline, Tariff Zone, Loc Name, Loc ID, Loc Role ID, Facility, Role, Action
+  const [detailColWidths, setDetailColWidths] = useState<number[]>(DETAIL_COL_DEFAULTS);
+  const detailResizing = useRef<{ colIdx: number; startX: number; startW: number } | null>(null);
+  const handleDetailResizeStart = useCallback((colIdx: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = detailColWidths[colIdx];
+    detailResizing.current = { colIdx, startX, startW };
+
+    const onMove = (ev: MouseEvent) => {
+      const info = detailResizing.current;
+      if (!info) return;
+      const delta = ev.clientX - info.startX;
+      const newW = Math.max(40, info.startW + delta);
+      setDetailColWidths((prev) => {
+        const next = [...prev];
+        next[info.colIdx] = newW;
+        return next;
+      });
+    };
+    const onUp = () => {
+      detailResizing.current = null;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [detailColWidths]);
 
   /* ---- Fetch watchlists ---- */
   const fetchWatchlists = useCallback(async () => {
@@ -140,7 +185,7 @@ export default function WatchlistEditor() {
 
     const cacheKey = [...selectedPipelines].sort().join(",");
     const cached = cacheGet<{ loc_names: string[]; details: RoleIdDetail[] }>(cacheKey);
-    if (cached) {
+    if (cached && cached.details?.[0]?.location_id != null) {
       setAvailableLocNames(cached.loc_names);
       setBrowseResults(cached.details ?? []);
       return;
@@ -176,7 +221,7 @@ export default function WatchlistEditor() {
       // Reset browse results to the full pipeline-level results
       const cacheKey = [...selectedPipelines].sort().join(",");
       const cached = cacheGet<{ details: RoleIdDetail[] }>(cacheKey);
-      if (cached?.details) setBrowseResults(cached.details);
+      if (cached?.details?.[0]?.location_id != null) setBrowseResults(cached.details);
       return;
     }
 
@@ -184,7 +229,7 @@ export default function WatchlistEditor() {
     const sortedLocNames = [...selectedLocNames].sort().join(",");
     const cacheKey = `${sortedPipelines}|${sortedLocNames}`;
     const cached = cacheGet<{ details: RoleIdDetail[] }>(cacheKey);
-    if (cached) {
+    if (cached && cached.details?.[0]?.location_id != null) {
       setBrowseResults(cached.details ?? []);
       return;
     }
@@ -246,6 +291,7 @@ export default function WatchlistEditor() {
     setSelectedPipelines([]);
     setSelectedLocNames([]);
     setAvailableLocNames([]);
+    setBrowseSearch("");
         setSelectedRoleIds([]);
     setPointDetails([]);
     resolvedIdsRef.current = new Set();
@@ -769,16 +815,26 @@ export default function WatchlistEditor() {
                           width="w-64"
                         />
                       )}
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-400">Loc ID</label>
+                        <input
+                          value={browseSearch}
+                          onChange={(e) => setBrowseSearch(e.target.value)}
+                          placeholder="e.g. 125396"
+                          className="w-64 rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+                        />
+                      </div>
                     </>
                   )}
                 </div>
 
                 {/* Browse Results Table */}
-                {selectedPipelines.length > 0 && browseResults.length > 0 && (
+                {selectedPipelines.length > 0 && filteredBrowseResults.length > 0 && (
                   <div className="pt-2 border-t border-gray-800">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-[10px] text-gray-500">
-                        {browseResults.length} result{browseResults.length !== 1 ? "s" : ""}
+                        {filteredBrowseResults.length} result{filteredBrowseResults.length !== 1 ? "s" : ""}
+                        {browseSearch && ` (of ${browseResults.length})`}
                         {filterLoading && " — updating..."}
                       </p>
                       <button
@@ -789,25 +845,40 @@ export default function WatchlistEditor() {
                         Add All
                       </button>
                     </div>
-                    <div className="max-h-56 overflow-y-auto">
-                      <table className="w-full text-xs">
+                    <div className="max-h-56 overflow-x-auto overflow-y-auto">
+                      <table className="text-xs border-collapse" style={{ minWidth: detailColWidths.reduce((a, b) => a + b, 0) }}>
                         <thead>
-                          <tr className="border-b border-gray-800 text-left text-[10px] uppercase tracking-wider text-gray-500">
-                            <th className="pb-1.5 pr-3">Pipeline</th>
-                            <th className="pb-1.5 pr-3">Location Name</th>
-                            <th className="pb-1.5 pr-3">Role ID</th>
-                            <th className="pb-1.5 w-16"></th>
+                          <tr>
+                            {["Pipeline", "Tariff Zone", "Loc Name", "Loc ID", "Loc Role ID", "Facility", "Role", ""].map((label, ci) => (
+                              <th
+                                key={ci}
+                                className="bg-[#12141d] px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-r border-gray-700 whitespace-nowrap select-none relative"
+                                style={{ width: detailColWidths[ci], minWidth: 40, textAlign: ci >= 3 && ci <= 4 ? "right" : "left" }}
+                              >
+                                {label}
+                                {ci < 7 && (
+                                  <span
+                                    onMouseDown={(e) => handleDetailResizeStart(ci, e)}
+                                    className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-purple-500/40"
+                                  />
+                                )}
+                              </th>
+                            ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {browseResults.map((d) => {
+                          {filteredBrowseResults.map((d) => {
                             const isAdded = selectedRoleIds.includes(String(d.location_role_id));
                             return (
-                              <tr key={`${d.location_role_id}-${d.pipeline}-${d.loc_name}`} className="border-b border-gray-800/50">
-                                <td className="py-1.5 pr-3 text-gray-400">{d.pipeline}</td>
-                                <td className="py-1.5 pr-3 text-gray-400">{d.loc_name}</td>
-                                <td className="py-1.5 pr-3 font-mono text-gray-300">{d.location_role_id}</td>
-                                <td className="py-1.5">
+                              <tr key={`${d.location_role_id}-${d.pipeline}-${d.loc_name}`} className="hover:bg-gray-800/30">
+                                <td className="bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[0] }}>{d.pipeline}</td>
+                                <td className="bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[1] }} title={d.tariff_zone}>{d.tariff_zone || "—"}</td>
+                                <td className="bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[2] }} title={d.loc_name}>{d.loc_name}</td>
+                                <td className="bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono">{d.location_id}</td>
+                                <td className="bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono">{d.location_role_id}</td>
+                                <td className="bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[5] }} title={d.facility}>{d.facility || "—"}</td>
+                                <td className="bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[6] }} title={d.role}>{d.role || "—"}</td>
+                                <td className="bg-[#12141d] px-2 py-1 whitespace-nowrap">
                                   {isAdded ? (
                                     <span className="text-[10px] font-medium text-green-500/70">Added</span>
                                   ) : (
@@ -852,25 +923,40 @@ export default function WatchlistEditor() {
                       Remove All
                     </button>
                   </div>
-                  <div className="max-h-72 overflow-y-auto">
-                    <table className="w-full text-xs">
+                  <div className="max-h-72 overflow-x-auto overflow-y-auto">
+                    <table className="text-xs border-collapse" style={{ minWidth: detailColWidths.reduce((a, b) => a + b, 0) }}>
                       <thead>
-                        <tr className="border-b border-gray-800 text-left text-[10px] uppercase tracking-wider text-gray-500">
-                          <th className="pb-1.5 pr-3">Pipeline</th>
-                          <th className="pb-1.5 pr-3">Location Name</th>
-                          <th className="pb-1.5 pr-3">Location Role ID</th>
-                          <th className="pb-1.5 w-8"></th>
+                        <tr>
+                          {["Pipeline", "Tariff Zone", "Loc Name", "Loc ID", "Loc Role ID", "Facility", "Role", ""].map((label, ci) => (
+                            <th
+                              key={ci}
+                              className="bg-[#12141d] px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-r border-gray-700 whitespace-nowrap select-none relative"
+                              style={{ width: detailColWidths[ci], minWidth: 40, textAlign: ci >= 3 && ci <= 4 ? "right" : "left" }}
+                            >
+                              {label}
+                              {ci < 7 && (
+                                <span
+                                  onMouseDown={(e) => handleDetailResizeStart(ci, e)}
+                                  className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-purple-500/40"
+                                />
+                              )}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
                         {pointDetails
                           .filter((d) => selectedRoleIds.includes(String(d.location_role_id)))
                           .map((d) => (
-                          <tr key={`${d.location_role_id}-${d.pipeline}-${d.loc_name}`} className="border-b border-gray-800/50 group transition-colors hover:bg-red-500/5">
-                            <td className="py-1.5 pr-3 text-gray-400">{d.pipeline}</td>
-                            <td className="py-1.5 pr-3 text-gray-400">{d.loc_name}</td>
-                            <td className="py-1.5 pr-3 font-mono text-gray-300">{d.location_role_id}</td>
-                            <td className="py-1.5">
+                          <tr key={`${d.location_role_id}-${d.pipeline}-${d.loc_name}`} className="group hover:bg-gray-800/30">
+                            <td className="bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[0] }}>{d.pipeline}</td>
+                            <td className="bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[1] }} title={d.tariff_zone}>{d.tariff_zone || "—"}</td>
+                            <td className="bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[2] }} title={d.loc_name}>{d.loc_name}</td>
+                            <td className="bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono">{d.location_id}</td>
+                            <td className="bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono">{d.location_role_id}</td>
+                            <td className="bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[5] }} title={d.facility}>{d.facility || "—"}</td>
+                            <td className="bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: detailColWidths[6] }} title={d.role}>{d.role || "—"}</td>
+                            <td className="bg-[#12141d] px-2 py-1 whitespace-nowrap">
                               <button
                                 type="button"
                                 onClick={() => handleRemovePoint(d.location_role_id)}

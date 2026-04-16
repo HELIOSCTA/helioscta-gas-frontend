@@ -408,15 +408,6 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
   const [startDate, setStartDate] = useState(() => lookbackDate(DEFAULT_LOOKBACK));
   const [endDate, setEndDate] = useState(() => todayStr());
 
-  /* --- scoped filter options (pipelines, loc_names, role_ids within watchlist) --- */
-  const [allPipelines, setAllPipelines] = useState<string[]>([]);
-  const [selectedPipelines, setSelectedPipelines] = useState<string[]>([]);
-  const [allLocNames, setAllLocNames] = useState<string[]>([]);
-  const [selectedLocNames, setSelectedLocNames] = useState<string[]>([]);
-  const [allRoleIds, setAllRoleIds] = useState<string[]>([]);
-  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
-  const [filterLoading, setFilterLoading] = useState(false);
-
   /* --- data state --- */
   const [rows, setRows] = useState<NomRow[]>([]);
   const [, setTotalCount] = useState(0);
@@ -436,6 +427,44 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
   /* --- pivot metric selector --- */
   const [pivotMetricKey, setPivotMetricKey] = useState<keyof NomRow>("signed_scheduled_cap");
   const [pivotDisplay, setPivotDisplay] = useState<"values" | "dod">("values");
+
+  /* --- resizable pivot columns --- */
+  const PIVOT_COL_DEFAULTS = [80, 110, 180, 70, 70, 120, 80]; // Pipeline, Tariff Zone, Loc Name, Loc ID, Role ID, Facility, Role
+  const [pivotColWidths, setPivotColWidths] = useState<number[]>(PIVOT_COL_DEFAULTS);
+  const pivotColLefts = useMemo(() => {
+    const lefts = [0];
+    for (let i = 1; i < pivotColWidths.length; i++) {
+      lefts.push(lefts[i - 1] + pivotColWidths[i - 1]);
+    }
+    return lefts;
+  }, [pivotColWidths]);
+  const totalStickyWidth = pivotColLefts[pivotColLefts.length - 1] + pivotColWidths[pivotColWidths.length - 1];
+
+  const pivotResizing = useRef<{ colIdx: number; startX: number; startW: number } | null>(null);
+  const handlePivotResizeStart = useCallback((colIdx: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = pivotColWidths[colIdx];
+    pivotResizing.current = { colIdx, startX, startW };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!pivotResizing.current) return;
+      const delta = ev.clientX - pivotResizing.current.startX;
+      const newW = Math.max(40, pivotResizing.current.startW + delta);
+      setPivotColWidths((prev) => {
+        const next = [...prev];
+        next[pivotResizing.current!.colIdx] = newW;
+        return next;
+      });
+    };
+    const onUp = () => {
+      pivotResizing.current = null;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [pivotColWidths]);
 
   /* --- chart series visibility --- */
   const [visibleSeries, setVisibleSeries] = useState<Set<string>>(
@@ -501,12 +530,12 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
 
   /* --- pivot summary data: selected metric by (pipeline, tariff_zone, loc_name, role_id) × date --- */
   const pivotData = useMemo(() => {
-    if (rows.length === 0) return { dates: [] as string[], weekGroups: [] as { label: string; span: number }[], pivotRows: [] as { pipeline_short_name: string; tariff_zone: string; loc_name: string; location_role_id: number; byDate: Map<string, number> }[] };
+    if (rows.length === 0) return { dates: [] as string[], weekGroups: [] as { label: string; span: number }[], pivotRows: [] as { pipeline_short_name: string; tariff_zone: string; loc_name: string; location_id: number; location_role_id: number; facility: string; role: string; byDate: Map<string, number> }[] };
 
     const dateSet = new Set<string>();
     const groups = new Map<
       string,
-      { pipeline_short_name: string; tariff_zone: string; loc_name: string; location_role_id: number; byDate: Map<string, number> }
+      { pipeline_short_name: string; tariff_zone: string; loc_name: string; location_id: number; location_role_id: number; facility: string; role: string; byDate: Map<string, number> }
     >();
 
     for (const row of rows) {
@@ -521,7 +550,10 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
           pipeline_short_name: row.pipeline_short_name,
           tariff_zone: row.tariff_zone,
           loc_name: row.loc_name,
+          location_id: row.location_id,
           location_role_id: row.location_role_id,
+          facility: row.facility ?? "",
+          role: row.role ?? "",
           byDate: new Map(),
         };
         groups.set(key, group);
@@ -560,89 +592,6 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
     return { dates, weekGroups, pivotRows };
   }, [rows, pivotMetricKey]);
 
-  /* --- fetch scoped filter options when watchlist changes --- */
-  useEffect(() => {
-    // Reset selections when watchlist changes
-    setSelectedPipelines([]);
-    setSelectedLocNames([]);
-    setSelectedRoleIds([]);
-
-    const cacheKey = `base-filters:${roleIdsParam}`;
-    const cached = cacheGet<{ pipelines: string[]; loc_names: string[]; role_ids: string[] }>(cacheKey);
-    if (cached) {
-      setAllPipelines(cached.pipelines);
-      setAllLocNames(cached.loc_names);
-      setAllRoleIds(cached.role_ids);
-      return;
-    }
-
-    setFilterLoading(true);
-    fetch(`/api/genscape-noms/filters?locationRoleIds=${roleIdsParam}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        const pipelines: string[] = data.pipelines ?? [];
-        const loc_names: string[] = data.loc_names ?? [];
-        const role_ids: string[] = (data.location_role_ids ?? []).map(String);
-        setAllPipelines(pipelines);
-        setAllLocNames(loc_names);
-        setAllRoleIds(role_ids);
-        cacheSet(cacheKey, { pipelines, loc_names, role_ids });
-      })
-      .catch(() => {})
-      .finally(() => setFilterLoading(false));
-  }, [roleIdsParam]);
-
-  /* --- refine filter options when pipeline or loc_name selection changes --- */
-  useEffect(() => {
-    // No refinement needed if nothing selected
-    if (selectedPipelines.length === 0 && selectedLocNames.length === 0) return;
-
-    const params = new URLSearchParams({ locationRoleIds: roleIdsParam });
-    if (selectedPipelines.length > 0) params.set("pipelines", selectedPipelines.join(","));
-    if (selectedLocNames.length > 0) params.set("locNames", selectedLocNames.join(","));
-
-    const cacheKey = `refined:${params.toString()}`;
-    const cached = cacheGet<{ loc_names: string[]; role_ids: string[] }>(cacheKey);
-    if (cached) {
-      if (selectedPipelines.length > 0) {
-        setAllLocNames(cached.loc_names);
-        setSelectedLocNames((prev) => prev.filter((n) => cached.loc_names.includes(n)));
-      }
-      setAllRoleIds(cached.role_ids);
-      setSelectedRoleIds((prev) => prev.filter((id) => cached.role_ids.includes(id)));
-      return;
-    }
-
-    setFilterLoading(true);
-    fetch(`/api/genscape-noms/filters?${params}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        const loc_names: string[] = data.loc_names ?? [];
-        const role_ids: string[] = (data.location_role_ids ?? []).map(String);
-        cacheSet(cacheKey, { loc_names, role_ids });
-        if (selectedPipelines.length > 0) {
-          setAllLocNames(loc_names);
-          setSelectedLocNames((prev) => prev.filter((n) => loc_names.includes(n)));
-        }
-        setAllRoleIds(role_ids);
-        setSelectedRoleIds((prev) => prev.filter((id) => role_ids.includes(id)));
-      })
-      .catch(() => {})
-      .finally(() => setFilterLoading(false));
-  }, [selectedPipelines, selectedLocNames, roleIdsParam]);
-
-  /* --- build the effective role IDs for data fetch --- */
-  const effectiveRoleIds = useMemo(() => {
-    if (selectedRoleIds.length > 0) return selectedRoleIds.join(",");
-    return roleIdsParam;
-  }, [selectedRoleIds, roleIdsParam]);
-
   /* --- fetch ALL data (no server-side pagination; client-side page for table) --- */
   useEffect(() => {
     const controller = new AbortController();
@@ -653,12 +602,10 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
     const params = new URLSearchParams({
       limit: String(FETCH_LIMIT),
       offset: "0",
-      locationRoleId: effectiveRoleIds,
+      locationRoleId: roleIdsParam,
     });
     if (startDate) params.set("start", startDate);
     if (endDate) params.set("end", endDate);
-    if (selectedPipelines.length > 0) params.set("pipeline", selectedPipelines.join(","));
-    if (selectedLocNames.length > 0) params.set("locName", selectedLocNames.join(","));
 
     fetch(`/api/genscape-noms?${params}`, { signal: controller.signal })
       .then((res) => {
@@ -676,7 +623,7 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
       .finally(() => setLoading(false));
 
     return () => controller.abort();
-  }, [startDate, endDate, effectiveRoleIds, selectedPipelines, selectedLocNames]);
+  }, [startDate, endDate, roleIdsParam]);
 
   /* --- lookback change --- */
   const handleLookbackChange = useCallback((days: number) => {
@@ -788,51 +735,6 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
         </div>
       </div>
 
-      {/* -------- Filters (no Apply — changes auto-refetch) -------- */}
-      <div className="rounded-lg border border-gray-800 bg-[#12141d] p-4 space-y-4">
-        <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">
-          Filters
-        </p>
-        {filterLoading ? (
-          <p className="text-xs text-gray-500 py-1.5">Loading filter options...</p>
-        ) : (
-          <div className="flex flex-wrap items-end gap-4">
-            <MultiSelect
-              label="Pipeline"
-              options={allPipelines}
-              selected={selectedPipelines}
-              onChange={(v) => {
-                setSelectedPipelines(v);
-                setOffset(0);
-              }}
-              placeholder="All pipelines..."
-              width="w-72"
-            />
-            <MultiSelect
-              label="Location Name"
-              options={allLocNames}
-              selected={selectedLocNames}
-              onChange={(v) => {
-                setSelectedLocNames(v);
-                setOffset(0);
-              }}
-              placeholder="All locations..."
-              width="w-72"
-            />
-            <MultiSelect
-              label="Location Role ID"
-              options={allRoleIds}
-              selected={selectedRoleIds}
-              onChange={(v) => {
-                setSelectedRoleIds(v);
-                setOffset(0);
-              }}
-              placeholder="All role IDs..."
-              width="w-56"
-            />
-          </div>
-        )}
-      </div>
 
       {/* ---------- Loading / Error ---------- */}
       {loading && (
@@ -903,11 +805,11 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
                 </div>
               </div>
               <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse" style={{ minWidth: `${400 + pivotData.dates.length * 88}px` }}>
+              <table className="w-full text-xs border-collapse" style={{ minWidth: `${totalStickyWidth + pivotData.dates.length * 88}px` }}>
                 {/* Week-group header row */}
                 <thead>
                   <tr>
-                    <th colSpan={4} className="sticky left-0 z-10 bg-[#12141d] border-b border-r border-gray-700" />
+                    <th colSpan={7} className="sticky left-0 z-10 bg-[#12141d] border-b border-r border-gray-700" style={{ width: totalStickyWidth }} />
                     {pivotData.weekGroups.map((wg, i) => (
                       <th
                         key={i}
@@ -920,10 +822,19 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
                   </tr>
                   {/* Individual date header row */}
                   <tr>
-                    <th className="sticky left-0 z-10 bg-[#12141d] px-2 py-1.5 text-left text-[10px] font-bold text-gray-500 border-b border-r border-gray-700 whitespace-nowrap">Pipeline</th>
-                    <th className="sticky left-[80px] z-10 bg-[#12141d] px-2 py-1.5 text-left text-[10px] font-bold text-gray-500 border-b border-r border-gray-700 whitespace-nowrap">Tariff Zone</th>
-                    <th className="sticky left-[170px] z-10 bg-[#12141d] px-2 py-1.5 text-left text-[10px] font-bold text-gray-500 border-b border-r border-gray-700 whitespace-nowrap">Loc Name</th>
-                    <th className="sticky left-[330px] z-10 bg-[#12141d] px-2 py-1.5 text-right text-[10px] font-bold text-gray-500 border-b border-r border-gray-700 whitespace-nowrap">Role ID</th>
+                    {["Pipeline", "Tariff Zone", "Loc Name", "Loc ID", "Role ID", "Facility", "Role"].map((label, ci) => (
+                      <th
+                        key={label}
+                        className="sticky z-10 bg-[#12141d] px-2 py-1.5 text-left text-[10px] font-bold text-gray-500 border-b border-r border-gray-700 whitespace-nowrap select-none relative"
+                        style={{ left: pivotColLefts[ci], width: pivotColWidths[ci], minWidth: 40, textAlign: ci >= 3 ? "right" : "left" }}
+                      >
+                        {label}
+                        <span
+                          onMouseDown={(e) => handlePivotResizeStart(ci, e)}
+                          className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-purple-500/40"
+                        />
+                      </th>
+                    ))}
                     {pivotData.dates.map((d) => (
                       <th
                         key={d}
@@ -943,10 +854,13 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
                       const rowMax = Math.max(...vals);
                       return (
                         <tr key={`${pr.pipeline_short_name}-${pr.location_role_id}`} className="hover:bg-gray-800/30">
-                          <td className="sticky left-0 z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap">{pr.pipeline_short_name}</td>
-                          <td className="sticky left-[80px] z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap truncate max-w-[90px]">{pr.tariff_zone || "--"}</td>
-                          <td className="sticky left-[170px] z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap truncate max-w-[160px]" title={pr.loc_name}>{pr.loc_name}</td>
-                          <td className="sticky left-[330px] z-10 bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono">{pr.location_role_id}</td>
+                          <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[0], width: pivotColWidths[0], maxWidth: pivotColWidths[0] }}>{pr.pipeline_short_name}</td>
+                          <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[1], width: pivotColWidths[1], maxWidth: pivotColWidths[1] }}>{pr.tariff_zone || "--"}</td>
+                          <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[2], width: pivotColWidths[2], maxWidth: pivotColWidths[2] }} title={pr.loc_name}>{pr.loc_name}</td>
+                          <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono" style={{ left: pivotColLefts[3], width: pivotColWidths[3], maxWidth: pivotColWidths[3] }}>{pr.location_id}</td>
+                          <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono" style={{ left: pivotColLefts[4], width: pivotColWidths[4], maxWidth: pivotColWidths[4] }}>{pr.location_role_id}</td>
+                          <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[5], width: pivotColWidths[5], maxWidth: pivotColWidths[5] }} title={pr.facility}>{pr.facility || "--"}</td>
+                          <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[6], width: pivotColWidths[6], maxWidth: pivotColWidths[6] }} title={pr.role}>{pr.role || "--"}</td>
                           {vals.map((v, i) => (
                             <td
                               key={pivotData.dates[i]}
@@ -969,10 +883,13 @@ export default function KrsWatchlistTable({ watchlist }: WatchlistTableProps) {
                     const dodMax = dodVals.length > 0 ? Math.max(...dodVals) : 0;
                     return (
                       <tr key={`${pr.pipeline_short_name}-${pr.location_role_id}`} className="hover:bg-gray-800/30">
-                        <td className="sticky left-0 z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap">{pr.pipeline_short_name}</td>
-                        <td className="sticky left-[80px] z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap truncate max-w-[90px]">{pr.tariff_zone || "--"}</td>
-                        <td className="sticky left-[170px] z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap truncate max-w-[160px]" title={pr.loc_name}>{pr.loc_name}</td>
-                        <td className="sticky left-[330px] z-10 bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono">{pr.location_role_id}</td>
+                        <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[0], width: pivotColWidths[0], maxWidth: pivotColWidths[0] }}>{pr.pipeline_short_name}</td>
+                        <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[1], width: pivotColWidths[1], maxWidth: pivotColWidths[1] }}>{pr.tariff_zone || "--"}</td>
+                        <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-300 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[2], width: pivotColWidths[2], maxWidth: pivotColWidths[2] }} title={pr.loc_name}>{pr.loc_name}</td>
+                        <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono" style={{ left: pivotColLefts[3], width: pivotColWidths[3], maxWidth: pivotColWidths[3] }}>{pr.location_id}</td>
+                        <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-right text-gray-400 border-r border-gray-800 whitespace-nowrap font-mono" style={{ left: pivotColLefts[4], width: pivotColWidths[4], maxWidth: pivotColWidths[4] }}>{pr.location_role_id}</td>
+                        <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[5], width: pivotColWidths[5], maxWidth: pivotColWidths[5] }} title={pr.facility}>{pr.facility || "--"}</td>
+                        <td className="sticky z-10 bg-[#12141d] px-2 py-1 text-gray-400 border-r border-gray-800 whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: pivotColLefts[6], width: pivotColWidths[6], maxWidth: pivotColWidths[6] }} title={pr.role}>{pr.role || "--"}</td>
                         {dods.map((d, i) => (
                           <td
                             key={pivotData.dates[i]}

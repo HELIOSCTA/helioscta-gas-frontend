@@ -111,8 +111,8 @@ export async function GET(request: Request) {
           `SELECT DISTINCT location_role_id FROM ${TABLE} ${baseWhere} ORDER BY location_role_id`,
           params
         ),
-        mssqlQuery<{ location_role_id: number; pipeline_short_name: string; loc_name: string }>(
-          `SELECT DISTINCT location_role_id, pipeline_short_name, loc_name FROM ${TABLE} ${baseWhere} ORDER BY location_role_id`,
+        mssqlQuery<{ location_role_id: number; pipeline_short_name: string; tariff_zone: string; loc_name: string; location_id: number; facility: string; role: string }>(
+          `SELECT DISTINCT location_role_id, pipeline_short_name, tariff_zone, loc_name, location_id, facility, role FROM ${TABLE} ${baseWhere} ORDER BY location_role_id`,
           params
         ),
       ]);
@@ -123,7 +123,11 @@ export async function GET(request: Request) {
       result.role_id_details = detailRows.map((r) => ({
         location_role_id: r.location_role_id,
         pipeline: r.pipeline_short_name,
+        tariff_zone: r.tariff_zone ?? "",
         loc_name: r.loc_name,
+        location_id: r.location_id,
+        facility: r.facility ?? "",
+        role: r.role ?? "",
       }));
 
       return NextResponse.json(result, {
@@ -166,8 +170,8 @@ export async function GET(request: Request) {
               `SELECT DISTINCT location_role_id FROM ${TABLE} ${where} ORDER BY location_role_id`,
               params
             ),
-            mssqlQuery<{ location_role_id: number; pipeline_short_name: string; loc_name: string }>(
-              `SELECT DISTINCT location_role_id, pipeline_short_name, loc_name FROM ${TABLE} ${where} ORDER BY pipeline_short_name, loc_name`,
+            mssqlQuery<{ location_role_id: number; pipeline_short_name: string; tariff_zone: string; loc_name: string; location_id: number }>(
+              `SELECT DISTINCT location_role_id, pipeline_short_name, tariff_zone, loc_name, location_id FROM ${TABLE} ${where} ORDER BY pipeline_short_name, loc_name`,
               params
             ),
           ]);
@@ -177,7 +181,9 @@ export async function GET(request: Request) {
           result.role_id_details = detailRows.map((r) => ({
             location_role_id: r.location_role_id,
             pipeline: r.pipeline_short_name,
+            tariff_zone: r.tariff_zone ?? "",
             loc_name: r.loc_name,
+            location_id: r.location_id,
           }));
         } else {
           // Cascading: fetch loc_names + location_role_ids for selected pipelines
@@ -191,8 +197,8 @@ export async function GET(request: Request) {
               `SELECT DISTINCT location_role_id FROM ${TABLE} ${where} ORDER BY location_role_id`,
               params
             ),
-            mssqlQuery<{ location_role_id: number; pipeline_short_name: string; loc_name: string }>(
-              `SELECT DISTINCT location_role_id, pipeline_short_name, loc_name FROM ${TABLE} ${where} ORDER BY pipeline_short_name, loc_name`,
+            mssqlQuery<{ location_role_id: number; pipeline_short_name: string; tariff_zone: string; loc_name: string; location_id: number }>(
+              `SELECT DISTINCT location_role_id, pipeline_short_name, tariff_zone, loc_name, location_id FROM ${TABLE} ${where} ORDER BY pipeline_short_name, loc_name`,
               params
             ),
           ]);
@@ -204,7 +210,9 @@ export async function GET(request: Request) {
           result.role_id_details = detailRows.map((r) => ({
             location_role_id: r.location_role_id,
             pipeline: r.pipeline_short_name,
+            tariff_zone: r.tariff_zone ?? "",
             loc_name: r.loc_name,
+            location_id: r.location_id,
           }));
         }
       }
