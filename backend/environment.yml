@@ -1,7 +1,0 @@
-name: helioscta-gas-frontend
-channels:
-  - defaults
-  - conda-forge
-dependencies:
-  - python=3.12
-  - pip
