@@ -31,5 +31,5 @@
 - Keep credentials in local env files or CI/CD secrets; use placeholders in docs/scripts.
 
 ## Agent References
-- Contributor preference notes: [`.SKILLS/todo-preferences.md`](./.SKILLS/todo-preferences.md).
-- Frontend theme/style preferences: [`.SKILLS/frontend-styling.md`](./.SKILLS/frontend-styling.md).
+- Contributor preference notes: [`.claude/standards/todo-preferences.md`](./.claude/standards/todo-preferences.md).
+- Frontend theme/style preferences: [`.claude/standards/frontend-styling.md`](./.claude/standards/frontend-styling.md).
