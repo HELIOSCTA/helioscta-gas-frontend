@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  PARQUET_REFRESH_EVENT,
+  type ParquetRefreshDetail,
+} from "@/components/ParquetMetaStrip";
+import {
   ComposedChart,
   Line,
   Bar,
@@ -287,11 +291,18 @@ function LegendItem({
 export default function PjmLmpPrices() {
   const [date, setDate] = useState<string>(todayStr());
   const [hubs, setHubs] = useState<string[]>([]);
-  const [rows, setRows] = useState<LmpRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [rowsByDate, setRowsByDate] = useState<Map<string, LmpRow[]>>(
+    () => new Map()
+  );
+  const [loadingDates, setLoadingDates] = useState<Set<string>>(
+    () => new Set()
+  );
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [overrides, setOverrides] = useState<Overrides>({});
+
+  const rows = rowsByDate.get(date) ?? [];
+  const loading = loadingDates.has(date);
 
   useEffect(() => {
     fetch("/api/pjm/lmps/filters")
@@ -304,9 +315,28 @@ export default function PjmLmpPrices() {
       .catch((err) => setError(err.message));
   }, []);
 
+  // Listen for global parquet refresh events from ParquetMetaStrip
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<ParquetRefreshDetail>).detail;
+      if (detail?.dataset === "pjm-lmps") {
+        setRowsByDate(new Map());
+      }
+    };
+    window.addEventListener(PARQUET_REFRESH_EVENT, handler);
+    return () => window.removeEventListener(PARQUET_REFRESH_EVENT, handler);
+  }, []);
+
   useEffect(() => {
     if (hubs.length === 0) return;
-    setLoading(true);
+    if (rowsByDate.has(date)) return;
+    if (loadingDates.has(date)) return;
+
+    setLoadingDates((prev) => {
+      const next = new Set(prev);
+      next.add(date);
+      return next;
+    });
     setError(null);
 
     const params = new URLSearchParams({
@@ -322,10 +352,22 @@ export default function PjmLmpPrices() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data) => setRows(data.rows ?? []))
+      .then((data) => {
+        setRowsByDate((prev) => {
+          const next = new Map(prev);
+          next.set(date, data.rows ?? []);
+          return next;
+        });
+      })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [hubs, date]);
+      .finally(() => {
+        setLoadingDates((prev) => {
+          const next = new Set(prev);
+          next.delete(date);
+          return next;
+        });
+      });
+  }, [hubs, date, rowsByDate, loadingDates]);
 
   useEffect(() => {
     setOverrides({});
@@ -371,6 +413,38 @@ export default function PjmLmpPrices() {
         compOv[hour] = value;
       }
       hubOv[componentKey] = compOv;
+      next[hub] = hubOv;
+      return next;
+    });
+  };
+
+  const handleClearInputs = (hub: string, componentKey: ComponentKey) => {
+    setOverrides((prev) => {
+      const next = { ...prev };
+      const hubOv: Partial<Record<ComponentKey, Record<number, number>>> = {
+        ...(next[hub] ?? {}),
+      };
+      delete hubOv[componentKey];
+      next[hub] = hubOv;
+      return next;
+    });
+  };
+
+  const handleSetToDa = (hub: string, componentKey: ComponentKey) => {
+    const hubData = lookup.get(hub);
+    if (!hubData) return;
+    setOverrides((prev) => {
+      const next = { ...prev };
+      const hubOv: Partial<Record<ComponentKey, Record<number, number>>> = {
+        ...(next[hub] ?? {}),
+      };
+      const newCompOv: Record<number, number> = {};
+      for (const h of HOURS) {
+        if (hubData.get("rt")?.get(h)) continue;
+        const da = hubData.get("da")?.get(h);
+        if (da) newCompOv[h] = da[componentKey];
+      }
+      hubOv[componentKey] = newCompOv;
       next[hub] = hubOv;
       return next;
     });
@@ -511,6 +585,8 @@ export default function PjmLmpPrices() {
                         onOverrideChange={(hour, value) =>
                           handleOverrideChange(hub, c.key, hour, value)
                         }
+                        onClearInputs={() => handleClearInputs(hub, c.key)}
+                        onSetToDa={() => handleSetToDa(hub, c.key)}
                         weekend={weekend}
                         divider={idx < COMPONENTS.length - 1}
                       />
@@ -532,6 +608,8 @@ function ComponentSection({
   hubData,
   rtOverrides,
   onOverrideChange,
+  onClearInputs,
+  onSetToDa,
   weekend,
   divider,
 }: {
@@ -540,6 +618,8 @@ function ComponentSection({
   hubData: HubLookup;
   rtOverrides: Record<number, number>;
   onOverrideChange: (hour: number, value: number | null) => void;
+  onClearInputs: () => void;
+  onSetToDa: () => void;
   weekend: boolean;
   divider: boolean;
 }) {
@@ -681,7 +761,50 @@ function ComponentSection({
                       dataKey="RT"
                       stroke={MARKET_COLOR.rt}
                       strokeWidth={2}
-                      dot={false}
+                      dot={(dotProps) => {
+                        const {
+                          cx,
+                          cy,
+                          index,
+                        } = dotProps as {
+                          cx?: number;
+                          cy?: number;
+                          index?: number;
+                        };
+                        const hour =
+                          index != null ? HOURS[index] : undefined;
+                        const isEntered =
+                          hour != null &&
+                          !hubData.get("rt")?.get(hour) &&
+                          rtOverrides[hour] != null;
+                        if (
+                          !isEntered ||
+                          cx == null ||
+                          cy == null ||
+                          !Number.isFinite(cx) ||
+                          !Number.isFinite(cy)
+                        ) {
+                          return (
+                            <circle
+                              key={`rt-dot-${index}`}
+                              cx={0}
+                              cy={0}
+                              r={0}
+                            />
+                          );
+                        }
+                        return (
+                          <circle
+                            key={`rt-dot-${index}`}
+                            cx={cx}
+                            cy={cy}
+                            r={4}
+                            fill={MARKET_COLOR.rt}
+                            stroke="#fbbf24"
+                            strokeWidth={1.5}
+                          />
+                        );
+                      }}
                       activeDot={{ r: 4 }}
                       connectNulls={false}
                       isAnimationActive={false}
@@ -718,13 +841,29 @@ function ComponentSection({
         </ChartCard>
 
         {/* Table */}
-        <div className="overflow-x-auto rounded-lg border border-[#2a3f60]">
-          <table className="w-full border-collapse text-[11px] font-mono">
-            <thead>
-              <tr className="bg-[#16263d]">
-                <th className="sticky left-0 z-10 bg-[#16263d] px-2 py-1.5 text-left text-[#e6efff] font-semibold whitespace-nowrap">
-                  Market
-                </th>
+        <div>
+          <div className="mb-2 flex items-center justify-end gap-2">
+            <button
+              onClick={onSetToDa}
+              className="rounded border border-sky-500/50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-200 hover:bg-sky-500/10"
+            >
+              Set RT = DA
+            </button>
+            <button
+              onClick={onClearInputs}
+              disabled={Object.keys(rtOverrides).length === 0}
+              className="rounded border border-amber-500/50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-200 hover:bg-amber-500/10 disabled:opacity-40"
+            >
+              Clear inputs
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-[#2a3f60]">
+            <table className="w-full border-collapse text-[11px] font-mono">
+              <thead>
+                <tr className="bg-[#16263d]">
+                  <th className="sticky left-0 z-10 bg-[#16263d] px-2 py-1.5 text-left text-[#e6efff] font-semibold whitespace-nowrap">
+                    Market
+                  </th>
                 {HOURS.map((h) => (
                   <th
                     key={h}
@@ -809,6 +948,7 @@ function ComponentSection({
               })}
             </tbody>
           </table>
+        </div>
         </div>
       </div>
       {divider && <div className="mx-4 border-t-2 border-gray-600" />}

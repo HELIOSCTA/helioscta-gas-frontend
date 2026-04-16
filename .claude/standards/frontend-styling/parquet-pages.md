@@ -47,9 +47,48 @@ place. The strip ticks every 30s on its own.
 - **Downloaded to server** — when our server last parsed the parquet into its in-process row cache (or "not cached" if cold)
 - **Size** — blob content length
 
+## Refresh control lives on the card
+
+The **Refresh button lives inside the `ParquetMetaStrip` card header**, not in
+the feature component's toolbar. Users expect the control for "clear the Azure
+cache" to sit next to the data it describes.
+
+Clicking Refresh:
+1. `POST /api/parquet-meta?dataset=<key>` — invalidates the server-side
+   row-cache and blob-meta-cache for that dataset.
+2. Re-fetches the metadata so the card re-renders with fresh values.
+3. Dispatches a `window` `CustomEvent("parquet:refresh", { detail: { dataset }})`
+   — feature components listen for this and re-run their data fetches.
+
+Feature components pick up the refresh with a tiny effect:
+
+```tsx
+import {
+  PARQUET_REFRESH_EVENT,
+  type ParquetRefreshDetail,
+} from "@/components/ParquetMetaStrip";
+
+useEffect(() => {
+  const handler = (e: Event) => {
+    const detail = (e as CustomEvent<ParquetRefreshDetail>).detail;
+    if (detail?.dataset === "my-dataset") {
+      // bump your fetch key, clear cached rows, or whatever triggers a refetch
+      setCacheBust((n) => n + 1);
+    }
+  };
+  window.addEventListener(PARQUET_REFRESH_EVENT, handler);
+  return () => window.removeEventListener(PARQUET_REFRESH_EVENT, handler);
+}, []);
+```
+
+Do NOT add a separate Refresh button to the page toolbar. One button, one
+place — on the card.
+
 ## Do not
 
 - Do not accept arbitrary `container` / `blobPath` values from the client. The
   `/api/parquet-meta` endpoint is keyed by dataset name on purpose.
 - Do not bypass `readParquet` in `lib/azure-parquet.ts` — its cache is what the
   "Downloaded" field reports on.
+- Do not add a Refresh button outside the `ParquetMetaStrip` card. If a page
+  needs refresh-aware behavior, listen for `parquet:refresh` events instead.

@@ -11,6 +11,10 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import {
+  PARQUET_REFRESH_EVENT,
+  type ParquetRefreshDetail,
+} from "@/components/ParquetMetaStrip";
 
 /* ------------------------------------------------------------------ */
 /*  sessionStorage helpers                                             */
@@ -695,6 +699,18 @@ export default function PjmLoadForecast() {
   useEffect(() => { cacheSet("end", endDate); }, [endDate]);
   useEffect(() => { cacheSet("revDate", revDate); }, [revDate]);
 
+  // Listen for global parquet refresh events from ParquetMetaStrip
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<ParquetRefreshDetail>).detail;
+      if (detail?.dataset === "pjm-load-forecast") {
+        setCacheBust((n) => n + 1);
+      }
+    };
+    window.addEventListener(PARQUET_REFRESH_EVENT, handler);
+    return () => window.removeEventListener(PARQUET_REFRESH_EVENT, handler);
+  }, []);
+
   useEffect(() => {
     fetch("/api/pjm/load-forecast/filters")
       .then((r) => r.json())
@@ -915,16 +931,6 @@ export default function PjmLoadForecast() {
           </select>
         </div>
 
-        <button
-          onClick={() => {
-            fetch("/api/pjm/load-forecast", { method: "POST" })
-              .then(() => setCacheBust((n) => n + 1))
-              .catch(() => setCacheBust((n) => n + 1));
-          }}
-          disabled={loading}
-          className="rounded-md border border-gray-700 px-3 py-2 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40 sm:ml-auto sm:py-1.5">
-          Refresh
-        </button>
       </div>
 
       {/* ── Status ── */}

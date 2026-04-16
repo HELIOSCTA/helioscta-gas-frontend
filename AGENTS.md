@@ -38,3 +38,8 @@
   - Plotting (Recharts): [`plotting.md`](./.claude/standards/frontend-styling/plotting.md)
   - Parquet-backed pages: [`parquet-pages.md`](./.claude/standards/frontend-styling/parquet-pages.md)
   - Mobile experience: [`mobile-experience.md`](./.claude/standards/frontend-styling/mobile-experience.md)
+- Performance standards index: [`.claude/standards/performance/README.md`](./.claude/standards/performance/README.md).
+  - Initial load + bundle: [`loading.md`](./.claude/standards/performance/loading.md)
+  - Data fetching + caching: [`data.md`](./.claude/standards/performance/data.md)
+  - Rendering + components: [`rendering.md`](./.claude/standards/performance/rendering.md)
+  - Measurement: [`measurement.md`](./.claude/standards/performance/measurement.md)
