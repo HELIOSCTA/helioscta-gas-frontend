@@ -7,6 +7,8 @@ import GenscapeNomsTable from "@/components/gas/GenscapeNomsTable";
 import KrsWatchlistTable from "@/components/gas/KrsWatchlistTable";
 import WatchlistEditor from "@/components/gas/WatchlistEditor";
 import NomsMovements from "@/components/gas/NomsMovements";
+import ParquetMetaStrip from "@/components/ParquetMetaStrip";
+import type { ParquetDatasetKey } from "@/lib/parquet-datasets";
 import type { Watchlist } from "@/lib/watchlists";
 import {
   GENSCAPE_ENABLED,
@@ -66,13 +68,18 @@ const SECTION_META: Record<ActiveSection, { title: string; subtitle: string; foo
     footer: "PJM Power | Source: Azure Blob Storage (Parquet)",
   },
   "pjm-load-forecast": {
-    title: "PJM Load Forecast",
+    title: "PJM Forecasts",
     subtitle: "Seven-day hourly load forecast by region — latest revision and historical vintages.",
     footer: "PJM Power | Source: Azure Blob Storage (Parquet)",
   },
 };
 
 type FeatureSection = Exclude<ActiveSection, "home">;
+
+const SECTION_PARQUET_DATASET: Partial<Record<ActiveSection, ParquetDatasetKey>> = {
+  "pjm-lmp-prices": "pjm-lmps",
+  "pjm-load-forecast": "pjm-load-forecast",
+};
 
 interface HomeCard {
   id: FeatureSection;
@@ -126,7 +133,7 @@ const HOME_CARDS: HomeCard[] = [
   },
   {
     id: "pjm-load-forecast",
-    title: "PJM Load Forecast",
+    title: "PJM Forecasts",
     description: "Seven-day hourly load forecast by region — RTO, Mid-Atlantic, Western, and Southern.",
     source: "Azure Blob (Parquet)",
     iconPath: "M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z",
@@ -216,6 +223,7 @@ function HomeCards({
 
 export default function HomePageClient() {
   const [activeSection, setActiveSection] = useState<ActiveSection>("home");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
   const [activeWatchlist, setActiveWatchlist] = useState<Watchlist | null>(null);
   const [watchlistsLoading, setWatchlistsLoading] = useState(true);
@@ -273,16 +281,41 @@ export default function HomePageClient() {
           iceCash: ICE_CASH_ENABLED,
           pjm: PJM_ENABLED,
         }}
+        mobileOpen={mobileNavOpen}
+        onMobileClose={() => setMobileNavOpen(false)}
       />
 
       <div className="flex-1 overflow-auto">
-        <main className="px-4 py-8 sm:px-8">
-          <div className="mb-8">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-500">
+        <main className="px-3 py-4 sm:px-8 sm:py-8">
+          {/* Mobile top bar */}
+          <div className="mb-4 flex items-center gap-3 md:hidden">
+            <button
+              onClick={() => setMobileNavOpen(true)}
+              className="rounded-md border border-gray-800 bg-gray-900/60 p-2 text-gray-300 hover:bg-gray-800 hover:text-white"
+              aria-label="Open navigation"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-500">
               Helios CTA | Gas Markets
             </p>
-            <h1 className="text-2xl font-bold text-gray-100 sm:text-3xl">{meta.title}</h1>
-            <p className="mt-2 text-sm text-gray-500">{meta.subtitle}</p>
+          </div>
+
+          <div className="mb-6 flex flex-col gap-4 sm:mb-8 md:flex-row md:items-start md:justify-between md:gap-6">
+            <div>
+              <p className="mb-1 hidden text-xs font-semibold uppercase tracking-widest text-gray-500 md:block">
+                Helios CTA | Gas Markets
+              </p>
+              <h1 className="text-xl font-bold text-gray-100 sm:text-3xl">{meta.title}</h1>
+              <p className="mt-2 text-sm text-gray-500">{meta.subtitle}</p>
+            </div>
+            {SECTION_PARQUET_DATASET[activeSection] && (
+              <div className="md:flex-shrink-0">
+                <ParquetMetaStrip dataset={SECTION_PARQUET_DATASET[activeSection]!} />
+              </div>
+            )}
           </div>
           {activeSection === "home" &&
             (homeCards.length > 0 ? (
@@ -293,7 +326,7 @@ export default function HomePageClient() {
               </div>
             ))}
           {activeSection === "genscape-noms" && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3 shadow-2xl sm:p-6">
               <GenscapeNomsTable />
             </div>
           )}
@@ -324,34 +357,34 @@ export default function HomePageClient() {
                 )}
               </div>
               {activeWatchlist && (
-                <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+                <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3 shadow-2xl sm:p-6">
                   <KrsWatchlistTable key={activeWatchlist.id} watchlist={activeWatchlist} />
                 </div>
               )}
             </>
           )}
           {activeSection === "watchlist-editor" && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3 shadow-2xl sm:p-6">
               <WatchlistEditor />
             </div>
           )}
           {activeSection === "noms-movements" && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3 shadow-2xl sm:p-6">
               <NomsMovements />
             </div>
           )}
           {activeSection === "cash-pricing-matrix" && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3 shadow-2xl sm:p-6">
               <CashPricingMatrix />
             </div>
           )}
           {activeSection === "pjm-lmp-prices" && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+            <div className="rounded-xl border border-gray-700 bg-gray-900 p-3 shadow-2xl sm:p-6">
               <PjmLmpPrices />
             </div>
           )}
           {activeSection === "pjm-load-forecast" && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 shadow-2xl">
+            <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3 shadow-2xl sm:p-6">
               <PjmLoadForecast />
             </div>
           )}

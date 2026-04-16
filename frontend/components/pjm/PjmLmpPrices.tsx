@@ -1,47 +1,28 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import MultiSelect from "@/components/ui/MultiSelect";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  LineChart,
+  ComposedChart,
   Line,
+  Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
+  ReferenceLine,
 } from "recharts";
 
-/* ------------------------------------------------------------------ */
-/*  sessionStorage helpers                                             */
-/* ------------------------------------------------------------------ */
+const CURATED_ORDER = ["WESTERN HUB", "DOMINION HUB", "AEP-DAYTON HUB"];
 
-const CACHE_PREFIX = "pjm-lmp:";
-
-function cacheGet<T>(key: string): T | null {
-  try {
-    const raw = sessionStorage.getItem(CACHE_PREFIX + key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
+function orderHubs(all: string[]): string[] {
+  const curated = CURATED_ORDER.filter((h) => all.includes(h));
+  const rest = all.filter((h) => !curated.includes(h)).sort();
+  return [...curated, ...rest];
 }
-
-function cacheSet(key: string, value: unknown): void {
-  try {
-    sessionStorage.setItem(CACHE_PREFIX + key, JSON.stringify(value));
-  } catch {
-    // silently skip
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
 
 interface LmpRow {
-  datetime: string;
   date: string;
   hour_ending: number;
   hub: string;
@@ -52,189 +33,286 @@ interface LmpRow {
   lmp_marginal_loss_price: number;
 }
 
-interface FiltersResponse {
-  hubs: string[];
-  markets: string[];
-  dateRange: { min: string; max: string };
-}
+type Market = "da" | "rt" | "dart";
+const MARKETS: Market[] = ["da", "rt", "dart"];
+const MARKET_LABEL: Record<Market, string> = {
+  da: "DA",
+  rt: "RT",
+  dart: "DART",
+};
+const MARKET_COLOR: Record<Market, string> = {
+  da: "#60a5fa",
+  rt: "#fb923c",
+  dart: "#facc15",
+};
 
-type SortField = keyof LmpRow;
-type SortDir = "asc" | "desc";
+const POS_COLOR = "#4ade80";
+const NEG_COLOR = "#f87171";
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                          */
-/* ------------------------------------------------------------------ */
+type ComponentKey =
+  | "lmp_total"
+  | "lmp_system_energy_price"
+  | "lmp_congestion_price";
 
-const PAGE_SIZE = 100;
-const DEFAULT_LOOKBACK = 7;
-
-const HUB_COLORS = [
-  "#3b82f6", // blue
-  "#f97316", // orange
-  "#22c55e", // green
-  "#eab308", // yellow
-  "#a855f7", // purple
-  "#ef4444", // red
-  "#06b6d4", // cyan
-  "#ec4899", // pink
-  "#84cc16", // lime
-  "#f59e0b", // amber
+const COMPONENTS: { key: ComponentKey; label: string }[] = [
+  { key: "lmp_total", label: "LMP Total" },
+  { key: "lmp_system_energy_price", label: "System Energy" },
+  { key: "lmp_congestion_price", label: "Congestion" },
 ];
 
-const MARKET_OPTIONS = [
-  { value: "da", label: "Day-Ahead" },
-  { value: "rt", label: "Real-Time" },
-  { value: "dart", label: "DA-RT Spread" },
-];
-
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
+const HOURS = Array.from({ length: 24 }, (_, i) => i + 1);
+const CHART_HEIGHT = 280;
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function lookbackDate(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
-}
-
 function fmtNum(val: number | null | undefined): string {
-  if (val == null) return "--";
-  return Number(val).toFixed(2);
+  if (val == null || !Number.isFinite(val)) return "--";
+  return val.toFixed(2);
 }
 
-function fmtDateShort(ts: string): string {
-  const d = new Date(ts + "T00:00:00");
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function isWeekend(dateStr: string): boolean {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDay();
+  return day === 0 || day === 6;
 }
 
-function downloadCsv(rows: LmpRow[]) {
-  const header = "Date,Hour,Hub,Market,LMP Total,System Energy,Congestion,Marginal Loss";
-  const csvRows = rows.map((r) =>
-    [
-      r.date,
-      r.hour_ending,
-      `"${r.hub}"`,
-      r.market,
-      fmtNum(r.lmp_total),
-      fmtNum(r.lmp_system_energy_price),
-      fmtNum(r.lmp_congestion_price),
-      fmtNum(r.lmp_marginal_loss_price),
-    ].join(",")
+function isPeakHour(h: number): boolean {
+  return h >= 8 && h <= 23;
+}
+
+function mean(arr: number[]): number | null {
+  if (arr.length === 0) return null;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function dartColor(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "text-gray-400";
+  if (v > 0) return "text-emerald-400";
+  if (v < 0) return "text-rose-400";
+  return "text-[#dbe7ff]";
+}
+
+function dartBarFill(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "transparent";
+  return v >= 0 ? POS_COLOR : NEG_COLOR;
+}
+
+function abbrevTick(v: number): string {
+  if (v >= 1000) return `${(v / 1000).toFixed(0)}k`;
+  if (v <= -1000) return `${(v / 1000).toFixed(0)}k`;
+  return String(v);
+}
+
+type HubLookup = Map<Market, Map<number, LmpRow>>;
+
+type Overrides = Record<
+  string,
+  Partial<Record<ComponentKey, Record<number, number>>>
+>;
+
+type Resolved = { value: number | null; edited: boolean };
+
+function resolve(
+  hubData: HubLookup,
+  rtOverrides: Record<number, number>,
+  mkt: Market,
+  key: ComponentKey,
+  hour: number
+): Resolved {
+  if (mkt === "rt") {
+    const actual = hubData.get("rt")?.get(hour);
+    if (actual) return { value: actual[key], edited: false };
+    const ov = rtOverrides[hour];
+    if (ov != null) return { value: ov, edited: true };
+    return { value: null, edited: false };
+  }
+
+  if (mkt === "da") {
+    const r = hubData.get("da")?.get(hour);
+    return { value: r ? r[key] : null, edited: false };
+  }
+
+  const actual = hubData.get("dart")?.get(hour);
+  if (actual) return { value: actual[key], edited: false };
+  const da = hubData.get("da")?.get(hour);
+  const rtActual = hubData.get("rt")?.get(hour);
+  const rtOv = rtOverrides[hour];
+  const rtVal = rtActual ? rtActual[key] : rtOv;
+  if (da && rtVal != null) {
+    return { value: da[key] - rtVal, edited: !rtActual && rtOv != null };
+  }
+  return { value: null, edited: false };
+}
+
+function ChartCard({
+  title,
+  height,
+  children,
+}: {
+  title: string;
+  height: number;
+  children: (opts: {
+    chartHeight: number;
+    hiddenSeries: Set<string>;
+    toggleSeries: (key: string) => void;
+  }) => React.ReactNode;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
+
+  const toggleSeries = useCallback((key: string) => {
+    setHiddenSeries((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const card = (
+    <div className="rounded-lg border border-slate-700/50 bg-slate-900/80 p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h5 className="text-sm font-medium text-slate-400">{title}</h5>
+        <button
+          onClick={() => setFocused((v) => !v)}
+          className={`flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-medium transition-colors ${
+            focused
+              ? "border-cyan-500/50 bg-cyan-500/10 text-cyan-400"
+              : "border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300"
+          }`}
+        >
+          {focused ? (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-3 w-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"
+              />
+            </svg>
+          ) : (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-3 w-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"
+              />
+            </svg>
+          )}
+          {focused ? "Collapse" : "Focus"}
+        </button>
+      </div>
+      {children({
+        chartHeight: focused ? 600 : height,
+        hiddenSeries,
+        toggleSeries,
+      })}
+    </div>
   );
-  const csv = [header, ...csvRows].join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `pjm_lmp_${todayStr()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+
+  if (!focused) return card;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-8"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) setFocused(false);
+      }}
+    >
+      <div className="w-full max-w-[1400px]">{card}</div>
+    </div>
+  );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Column definitions                                                 */
-/* ------------------------------------------------------------------ */
-
-interface ColumnDef {
-  key: SortField;
+function LegendItem({
+  seriesKey,
+  label,
+  color,
+  dash,
+  type = "line",
+  hiddenSeries,
+  toggleSeries,
+}: {
+  seriesKey: string;
   label: string;
-  format?: (row: LmpRow) => string;
-  className?: string;
+  color: string;
+  dash?: string;
+  type?: "line" | "square";
+  hiddenSeries: Set<string>;
+  toggleSeries: (key: string) => void;
+}) {
+  const hidden = hiddenSeries.has(seriesKey);
+  return (
+    <button
+      onClick={() => toggleSeries(seriesKey)}
+      className={`flex cursor-pointer items-center gap-1.5 text-slate-400 transition-opacity hover:text-slate-200 ${
+        hidden ? "line-through opacity-35" : ""
+      }`}
+    >
+      {type === "square" ? (
+        <span
+          className="inline-block h-2.5 w-2.5 rounded-sm"
+          style={{ background: color }}
+        />
+      ) : (
+        <span
+          className="inline-block h-0.5 w-4 rounded"
+          style={{
+            background: color,
+            borderTop: dash ? `2px dashed ${color}` : undefined,
+            height: dash ? 0 : undefined,
+          }}
+        />
+      )}
+      {label}
+    </button>
+  );
 }
-
-const COLUMNS: ColumnDef[] = [
-  { key: "date", label: "Date" },
-  { key: "hour_ending", label: "Hour", className: "text-right" },
-  { key: "hub", label: "Hub" },
-  { key: "market", label: "Market" },
-  {
-    key: "lmp_total",
-    label: "LMP Total ($/MWh)",
-    format: (r) => fmtNum(r.lmp_total),
-    className: "text-right",
-  },
-  {
-    key: "lmp_system_energy_price",
-    label: "System Energy",
-    format: (r) => fmtNum(r.lmp_system_energy_price),
-    className: "text-right",
-  },
-  {
-    key: "lmp_congestion_price",
-    label: "Congestion",
-    format: (r) => fmtNum(r.lmp_congestion_price),
-    className: "text-right",
-  },
-  {
-    key: "lmp_marginal_loss_price",
-    label: "Marginal Loss",
-    format: (r) => fmtNum(r.lmp_marginal_loss_price),
-    className: "text-right",
-  },
-];
-
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
 
 export default function PjmLmpPrices() {
-  // Filter options from API
-  const [filterOpts, setFilterOpts] = useState<FiltersResponse | null>(null);
-
-  // Filter state
-  const [startDate, setStartDate] = useState(() => cacheGet<string>("start") ?? lookbackDate(DEFAULT_LOOKBACK));
-  const [endDate, setEndDate] = useState(() => cacheGet<string>("end") ?? todayStr());
-  const [selectedHubs, setSelectedHubs] = useState<string[]>(() => cacheGet<string[]>("hubs") ?? []);
-  const [selectedMarket, setSelectedMarket] = useState(() => cacheGet<string>("market") ?? "da");
-
-  // Data state
+  const [date, setDate] = useState<string>(todayStr());
+  const [hubs, setHubs] = useState<string[]>([]);
   const [rows, setRows] = useState<LmpRow[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [overrides, setOverrides] = useState<Overrides>({});
 
-  // Pagination & sorting
-  const [page, setPage] = useState(0);
-  const [sortField, setSortField] = useState<SortField>("date");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-
-  // Persist filter state
-  useEffect(() => { cacheSet("start", startDate); }, [startDate]);
-  useEffect(() => { cacheSet("end", endDate); }, [endDate]);
-  useEffect(() => { cacheSet("hubs", selectedHubs); }, [selectedHubs]);
-  useEffect(() => { cacheSet("market", selectedMarket); }, [selectedMarket]);
-
-  // Fetch filter options on mount
   useEffect(() => {
     fetch("/api/pjm/lmps/filters")
       .then((r) => r.json())
-      .then((data: FiltersResponse) => {
-        setFilterOpts(data);
-        // Auto-select first hub if none cached
-        if (selectedHubs.length === 0 && data.hubs.length > 0) {
-          setSelectedHubs([data.hubs[0]]);
-        }
+      .then((data) => {
+        const ordered = orderHubs(data.hubs ?? []);
+        setHubs(ordered);
+        if (ordered.length > 0) setExpanded({ [ordered[0]]: true });
       })
-      .catch((err) => console.error("Failed to load PJM filters:", err));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch((err) => setError(err.message));
   }, []);
 
-  // Fetch data when filters change
-  const fetchData = useCallback(() => {
-    if (selectedHubs.length === 0) return;
-
+  useEffect(() => {
+    if (hubs.length === 0) return;
     setLoading(true);
     setError(null);
 
     const params = new URLSearchParams({
-      start: startDate,
-      end: endDate,
-      hub: selectedHubs.join(","),
-      market: selectedMarket,
+      start: date,
+      end: date,
+      hub: hubs.join(","),
       limit: "5000",
       offset: "0",
     });
@@ -244,262 +322,496 @@ export default function PjmLmpPrices() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data) => {
-        setRows(data.rows ?? []);
-        setTotalCount(data.totalCount ?? 0);
-        setPage(0);
-      })
+      .then((data) => setRows(data.rows ?? []))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [startDate, endDate, selectedHubs, selectedMarket]);
+  }, [hubs, date]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    setOverrides({});
+  }, [date]);
 
-  // Chart data: aggregate hourly → daily average by hub
-  const chartData = useMemo(() => {
-    const byDate = new Map<string, Record<string, { sum: number; count: number }>>();
+  const lookup = useMemo(() => {
+    const out = new Map<string, HubLookup>();
     for (const row of rows) {
-      let entry = byDate.get(row.date);
-      if (!entry) {
-        entry = {};
-        byDate.set(row.date, entry);
+      let byMkt = out.get(row.hub);
+      if (!byMkt) {
+        byMkt = new Map();
+        out.set(row.hub, byMkt);
       }
-      if (!entry[row.hub]) {
-        entry[row.hub] = { sum: 0, count: 0 };
+      const mkt = row.market as Market;
+      let byHr = byMkt.get(mkt);
+      if (!byHr) {
+        byHr = new Map();
+        byMkt.set(mkt, byHr);
       }
-      entry[row.hub].sum += row.lmp_total;
-      entry[row.hub].count += 1;
+      byHr.set(row.hour_ending, row);
     }
+    return out;
+  }, [rows]);
 
-    return [...byDate.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, hubs]) => {
-        const point: Record<string, string | number> = { date: fmtDateShort(date) };
-        for (const hub of selectedHubs) {
-          const h = hubs[hub];
-          point[hub] = h ? Number((h.sum / h.count).toFixed(2)) : 0;
-        }
-        return point;
-      });
-  }, [rows, selectedHubs]);
+  const toggle = (hub: string) =>
+    setExpanded((p) => ({ ...p, [hub]: !p[hub] }));
 
-  // Sorted + paginated rows for table
-  const sortedRows = useMemo(() => {
-    const sorted = [...rows].sort((a, b) => {
-      const aVal = a[sortField];
-      const bVal = b[sortField];
-      if (aVal == null || bVal == null) return 0;
-      const cmp = typeof aVal === "number" && typeof bVal === "number"
-        ? aVal - bVal
-        : String(aVal).localeCompare(String(bVal));
-      return sortDir === "asc" ? cmp : -cmp;
+  const handleOverrideChange = (
+    hub: string,
+    componentKey: ComponentKey,
+    hour: number,
+    value: number | null
+  ) => {
+    setOverrides((prev) => {
+      const next = { ...prev };
+      const hubOv: Partial<Record<ComponentKey, Record<number, number>>> = {
+        ...(next[hub] ?? {}),
+      };
+      const compOv: Record<number, number> = { ...(hubOv[componentKey] ?? {}) };
+      if (value == null) {
+        delete compOv[hour];
+      } else {
+        compOv[hour] = value;
+      }
+      hubOv[componentKey] = compOv;
+      next[hub] = hubOv;
+      return next;
     });
-    return sorted;
-  }, [rows, sortField, sortDir]);
-
-  const pageRows = sortedRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.ceil(sortedRows.length / PAGE_SIZE);
-
-  const toggleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortField(field);
-      setSortDir("desc");
-    }
   };
 
+  const weekend = isWeekend(date);
+
   return (
-    <div className="space-y-6">
-      {/* ── Filters ── */}
-      <div className="flex flex-wrap items-end gap-4">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-4">
         <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-            Start Date
+          <label className="text-xs font-bold uppercase tracking-wider text-gray-100">
+            Date
           </label>
           <input
             type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:border-gray-500 focus:outline-none"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-full rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none sm:w-auto sm:py-1.5"
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-            End Date
-          </label>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:border-gray-500 focus:outline-none"
-          />
+        <div className="flex gap-2">
+          <button
+            onClick={() =>
+              setExpanded(Object.fromEntries(hubs.map((h) => [h, true])))
+            }
+            className="flex-1 rounded-md border border-gray-600 px-3 py-2 text-sm font-semibold text-gray-100 hover:bg-gray-800 hover:text-white sm:flex-none sm:py-1.5"
+          >
+            Expand all
+          </button>
+          <button
+            onClick={() => setExpanded({})}
+            className="flex-1 rounded-md border border-gray-600 px-3 py-2 text-sm font-semibold text-gray-100 hover:bg-gray-800 hover:text-white sm:flex-none sm:py-1.5"
+          >
+            Collapse all
+          </button>
+          <button
+            onClick={() => setOverrides({})}
+            disabled={Object.keys(overrides).length === 0}
+            className="flex-1 rounded-md border border-amber-500/50 px-3 py-2 text-sm font-semibold text-amber-200 hover:bg-amber-500/10 disabled:opacity-40 sm:flex-none sm:py-1.5"
+          >
+            Clear RT inputs
+          </button>
         </div>
-
-        <MultiSelect
-          label="Hubs"
-          options={filterOpts?.hubs ?? []}
-          selected={selectedHubs}
-          onChange={setSelectedHubs}
-          placeholder="Select hubs..."
-          width="w-56"
-        />
-
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-            Market
-          </label>
-          <div className="flex gap-1">
-            {MARKET_OPTIONS.map((m) => (
-              <button
-                key={m.value}
-                onClick={() => setSelectedMarket(m.value)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  selectedMarket === m.value
-                    ? "bg-amber-600 text-white"
-                    : "border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
-                }`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <button
-          onClick={() => downloadCsv(sortedRows)}
-          disabled={sortedRows.length === 0}
-          className="ml-auto rounded-md border border-gray-700 px-3 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
-        >
-          Export CSV
-        </button>
+        {loading && <span className="text-sm text-gray-200">Loading...</span>}
+        {error && <span className="text-sm text-rose-400">Error: {error}</span>}
       </div>
 
-      {/* ── Status ── */}
-      {loading && <p className="text-sm text-gray-500">Loading PJM LMP data...</p>}
-      {error && <p className="text-sm text-red-400">Error: {error}</p>}
-      {!loading && !error && rows.length === 0 && selectedHubs.length > 0 && (
-        <p className="text-sm text-gray-500">No data found for the selected filters.</p>
-      )}
-      {!loading && selectedHubs.length === 0 && (
-        <p className="text-sm text-gray-500">Select at least one hub to view data.</p>
-      )}
+      <div className="space-y-2">
+        {hubs.map((hub) => {
+          const isOpen = !!expanded[hub];
+          const hubData = lookup.get(hub);
+          const hubOv = overrides[hub] ?? {};
 
-      {/* ── Chart ── */}
-      {chartData.length > 0 && (
-        <div>
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">
-            Daily Avg LMP ($/MWh) &mdash; {MARKET_OPTIONS.find((m) => m.value === selectedMarket)?.label ?? selectedMarket}
-          </h3>
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-              <XAxis
-                dataKey="date"
-                tick={{ fill: "#6b7280", fontSize: 11 }}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: "#6b7280", fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#111827",
-                  border: "1px solid #374151",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                labelStyle={{ color: "#9ca3af" }}
-              />
-              <Legend
-                wrapperStyle={{ fontSize: 12, color: "#9ca3af" }}
-              />
-              {selectedHubs.map((hub, i) => (
-                <Line
-                  key={hub}
-                  type="monotone"
-                  dataKey={hub}
-                  name={hub}
-                  stroke={HUB_COLORS[i % HUB_COLORS.length]}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+          const headerRtOv = hubOv.lmp_total ?? {};
+          const mktAvg = (mkt: Market): number | null => {
+            if (!hubData) return null;
+            const vals: number[] = [];
+            for (const h of HOURS) {
+              const { value } = resolve(
+                hubData,
+                headerRtOv,
+                mkt,
+                "lmp_total",
+                h
+              );
+              if (value != null) vals.push(value);
+            }
+            return mean(vals);
+          };
 
-      {/* ── Table ── */}
-      {pageRows.length > 0 && (
-        <>
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>
-              Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sortedRows.length)} of{" "}
-              {sortedRows.length.toLocaleString()} rows (total: {totalCount.toLocaleString()})
-            </span>
-            <div className="flex gap-1">
+          const daTot = mktAvg("da");
+          const rtTot = mktAvg("rt");
+          const dartTot = mktAvg("dart");
+
+          return (
+            <div
+              key={hub}
+              className="rounded-lg border border-gray-700 bg-gray-900"
+            >
               <button
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={page === 0}
-                className="rounded border border-gray-700 px-2 py-1 hover:bg-gray-800 disabled:opacity-40"
+                onClick={() => toggle(hub)}
+                className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-800/50"
               >
-                Prev
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                disabled={page >= totalPages - 1}
-                className="rounded border border-gray-700 px-2 py-1 hover:bg-gray-800 disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-800">
-                  {COLUMNS.map((col) => (
-                    <th
-                      key={col.key}
-                      onClick={() => toggleSort(col.key)}
-                      className={`cursor-pointer whitespace-nowrap px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300 ${col.className ?? ""}`}
+                <span className="text-sm font-bold text-white">{hub}</span>
+                <span className="flex items-center gap-4">
+                  <span className="hidden sm:flex items-center gap-3 text-xs font-mono text-gray-100">
+                    <span>
+                      <span className="text-gray-300">DA</span> ${fmtNum(daTot)}
+                    </span>
+                    <span>
+                      <span className="text-gray-300">RT</span> ${fmtNum(rtTot)}
+                    </span>
+                    <span
+                      className={
+                        dartTot == null
+                          ? "text-gray-300"
+                          : dartTot >= 0
+                            ? "text-emerald-400"
+                            : "text-rose-400"
+                      }
                     >
-                      {col.label}
-                      {sortField === col.key && (
-                        <span className="ml-1">{sortDir === "asc" ? "▲" : "▼"}</span>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.map((row, i) => (
-                  <tr
-                    key={`${row.date}-${row.hour_ending}-${row.hub}-${i}`}
-                    className="border-b border-gray-800/50 hover:bg-gray-800/30"
+                      <span className="text-gray-300">DART</span>{" "}
+                      {dartTot != null && dartTot >= 0 ? "+" : ""}
+                      {fmtNum(dartTot)}
+                    </span>
+                  </span>
+                  <svg
+                    className={`h-4 w-4 text-gray-200 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
                   >
-                    {COLUMNS.map((col) => (
-                      <td
-                        key={col.key}
-                        className={`whitespace-nowrap px-4 py-1.5 text-gray-300 ${col.className ?? ""}`}
-                      >
-                        {col.format ? col.format(row) : String(row[col.key] ?? "--")}
-                      </td>
-                    ))}
-                  </tr>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </span>
+              </button>
+
+              {isOpen && (
+                <div className="border-t border-gray-700">
+                  {!hubData ? (
+                    <p className="px-4 py-3 text-xs text-gray-200">
+                      No data for {date}.
+                    </p>
+                  ) : (
+                    COMPONENTS.map((c, idx) => (
+                      <ComponentSection
+                        key={c.key}
+                        componentKey={c.key}
+                        componentLabel={c.label}
+                        hubData={hubData}
+                        rtOverrides={hubOv[c.key] ?? {}}
+                        onOverrideChange={(hour, value) =>
+                          handleOverrideChange(hub, c.key, hour, value)
+                        }
+                        weekend={weekend}
+                        divider={idx < COMPONENTS.length - 1}
+                      />
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ComponentSection({
+  componentKey,
+  componentLabel,
+  hubData,
+  rtOverrides,
+  onOverrideChange,
+  weekend,
+  divider,
+}: {
+  componentKey: ComponentKey;
+  componentLabel: string;
+  hubData: HubLookup;
+  rtOverrides: Record<number, number>;
+  onOverrideChange: (hour: number, value: number | null) => void;
+  weekend: boolean;
+  divider: boolean;
+}) {
+  const tableRows = MARKETS.map((mkt) => {
+    const hourly = HOURS.map((h) =>
+      resolve(hubData, rtOverrides, mkt, componentKey, h)
+    );
+    const peakVals: number[] = [];
+    const offVals: number[] = [];
+    hourly.forEach(({ value }, i) => {
+      if (value == null) return;
+      const hour = HOURS[i];
+      if (!weekend && isPeakHour(hour)) peakVals.push(value);
+      else offVals.push(value);
+    });
+    const allVals = hourly
+      .map((h) => h.value)
+      .filter((v): v is number => v != null);
+    return {
+      mkt,
+      hourly,
+      peak: mean(peakVals),
+      off: mean(offVals),
+      avg: mean(allVals),
+    };
+  });
+
+  const chartData = HOURS.map((h) => {
+    const point: Record<string, number | string | null> = { he: `HE${h}` };
+    for (const mkt of MARKETS) {
+      const { value } = resolve(hubData, rtOverrides, mkt, componentKey, h);
+      point[MARKET_LABEL[mkt]] = value != null ? Number(value.toFixed(2)) : null;
+    }
+    return point;
+  });
+
+  return (
+    <div>
+      <div className="space-y-3 px-4 py-4">
+        <h4 className="text-sm font-bold uppercase tracking-wider text-white">
+          {componentLabel}
+        </h4>
+
+        {/* Chart */}
+        <ChartCard
+          title={`${componentLabel} — Hourly ($/MWh)`}
+          height={CHART_HEIGHT}
+        >
+          {({ chartHeight, hiddenSeries, toggleSeries }) => (
+            <>
+              <ResponsiveContainer width="100%" height={chartHeight}>
+                <ComposedChart
+                  data={chartData}
+                  margin={{ top: 5, right: 20, bottom: 5, left: 10 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#283442" />
+                  <XAxis
+                    dataKey="he"
+                    tick={{ fill: "#6b7280", fontSize: 11 }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fill: "#6b7280", fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={abbrevTick}
+                    domain={["dataMin - 10", "dataMax + 10"]}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fill: "#6b7280", fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={abbrevTick}
+                    domain={["dataMin - 3", "dataMax + 3"]}
+                    label={{
+                      value: "DART",
+                      angle: -90,
+                      position: "insideRight",
+                      fill: "#6b7280",
+                      fontSize: 10,
+                      offset: 10,
+                    }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#111827",
+                      border: "1px solid #374151",
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                    labelStyle={{ color: "#9ca3af" }}
+                    formatter={(value: number, name: string) => [
+                      `$${Number(value).toFixed(2)}`,
+                      name,
+                    ]}
+                  />
+                  <ReferenceLine
+                    yAxisId="right"
+                    y={0}
+                    stroke="#374151"
+                    strokeDasharray="2 2"
+                  />
+                  {!hiddenSeries.has("DART") && (
+                    <Bar
+                      yAxisId="right"
+                      dataKey="DART"
+                      name="DART"
+                      isAnimationActive={false}
+                      maxBarSize={18}
+                    >
+                      {chartData.map((entry, i) => (
+                        <Cell
+                          key={`dart-${i}`}
+                          fill={dartBarFill(entry.DART as number | null)}
+                        />
+                      ))}
+                    </Bar>
+                  )}
+                  {!hiddenSeries.has("DA") && (
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="DA"
+                      stroke={MARKET_COLOR.da}
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 4 }}
+                      connectNulls={false}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {!hiddenSeries.has("RT") && (
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="RT"
+                      stroke={MARKET_COLOR.rt}
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 4 }}
+                      connectNulls={false}
+                      isAnimationActive={false}
+                    />
+                  )}
+                </ComposedChart>
+              </ResponsiveContainer>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px]">
+                <LegendItem
+                  seriesKey="DA"
+                  label="DA"
+                  color={MARKET_COLOR.da}
+                  hiddenSeries={hiddenSeries}
+                  toggleSeries={toggleSeries}
+                />
+                <LegendItem
+                  seriesKey="RT"
+                  label="RT"
+                  color={MARKET_COLOR.rt}
+                  hiddenSeries={hiddenSeries}
+                  toggleSeries={toggleSeries}
+                />
+                <LegendItem
+                  seriesKey="DART"
+                  label="DART (+/−)"
+                  color={POS_COLOR}
+                  type="square"
+                  hiddenSeries={hiddenSeries}
+                  toggleSeries={toggleSeries}
+                />
+              </div>
+            </>
+          )}
+        </ChartCard>
+
+        {/* Table */}
+        <div className="overflow-x-auto rounded-lg border border-[#2a3f60]">
+          <table className="w-full border-collapse text-[11px] font-mono">
+            <thead>
+              <tr className="bg-[#16263d]">
+                <th className="sticky left-0 z-10 bg-[#16263d] px-2 py-1.5 text-left text-[#e6efff] font-semibold whitespace-nowrap">
+                  Market
+                </th>
+                {HOURS.map((h) => (
+                  <th
+                    key={h}
+                    className="px-2 py-1.5 text-right text-[#e6efff] font-semibold whitespace-nowrap"
+                  >
+                    HE{h}
+                  </th>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+                <th className="px-2 py-1.5 text-right text-amber-400 font-semibold whitespace-nowrap">
+                  OnPeak
+                </th>
+                <th className="px-2 py-1.5 text-right text-amber-400 font-semibold whitespace-nowrap">
+                  OffPeak
+                </th>
+                <th className="px-2 py-1.5 text-right text-amber-400 font-semibold whitespace-nowrap">
+                  Avg
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.map((r) => {
+                const isDart = r.mkt === "dart";
+                const summaryClass = (v: number | null) =>
+                  `px-2 py-1 text-right font-semibold whitespace-nowrap ${
+                    isDart ? dartColor(v) : "text-[#dbe7ff]"
+                  }`;
+                return (
+                  <tr
+                    key={r.mkt}
+                    className="border-t border-[#1f334f] hover:bg-[#1c2f4a]"
+                  >
+                    <td
+                      className="sticky left-0 z-10 bg-[#0f1a2b] px-2 py-1 font-bold whitespace-nowrap"
+                      style={{ color: MARKET_COLOR[r.mkt] }}
+                    >
+                      {MARKET_LABEL[r.mkt]}
+                    </td>
+                    {r.hourly.map(({ value, edited }, i) => {
+                      const hour = HOURS[i];
+                      const rtActual = hubData.get("rt")?.get(hour);
+                      const isEditable = r.mkt === "rt" && !rtActual;
+                      const cellColor = isDart
+                        ? dartColor(value)
+                        : edited
+                          ? "italic text-amber-300"
+                          : "text-[#dbe7ff]";
+                      return (
+                        <td
+                          key={i}
+                          className="px-1 py-1 text-right whitespace-nowrap"
+                        >
+                          {isEditable ? (
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={rtOverrides[hour] ?? ""}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                if (raw === "") {
+                                  onOverrideChange(hour, null);
+                                  return;
+                                }
+                                const n = parseFloat(raw);
+                                if (Number.isFinite(n)) {
+                                  onOverrideChange(hour, n);
+                                }
+                              }}
+                              className="w-14 rounded border border-amber-500/60 bg-[#0f1a2b] px-1 py-0.5 text-right text-[11px] text-amber-200 focus:border-amber-400 focus:outline-none"
+                              placeholder="—"
+                            />
+                          ) : (
+                            <span className={cellColor}>{fmtNum(value)}</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td className={summaryClass(r.peak)}>{fmtNum(r.peak)}</td>
+                    <td className={summaryClass(r.off)}>{fmtNum(r.off)}</td>
+                    <td className={summaryClass(r.avg)}>{fmtNum(r.avg)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {divider && <div className="mx-4 border-t-2 border-gray-600" />}
     </div>
   );
 }

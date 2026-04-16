@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -134,6 +134,18 @@ function resolveVintages(rows: ForecastRow[]): ResolvedVintage[] {
 const HE_COLS = Array.from({ length: 24 }, (_, i) => i + 1);
 const ON_PEAK_HES = new Set([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
 const OFF_PEAK_HES = new Set([1, 2, 3, 4, 5, 6, 7, 24]);
+
+const REGION_ORDER = ["RTO", "SOUTH", "MIDATL", "MID_ATL", "MID ATL", "WEST"];
+function sortRegions(regions: string[]): string[] {
+  const idx = (r: string) => {
+    const i = REGION_ORDER.indexOf(r);
+    return i === -1 ? REGION_ORDER.length : i;
+  };
+  return [...regions].sort((a, b) => {
+    const di = idx(a) - idx(b);
+    return di !== 0 ? di : a.localeCompare(b);
+  });
+}
 
 const REVISION_COLORS = [
   "#60a5fa", "#f87171", "#a78bfa", "#34d399", "#fbbf24",
@@ -357,10 +369,10 @@ function VintageLegend({
 /*  Shared HE table header                                             */
 /* ------------------------------------------------------------------ */
 
-function HeTableHeader() {
+function HeTableHeader({ firstColLabel = "Metric" }: { firstColLabel?: string } = {}) {
   return (
     <tr className="bg-[#16263d]">
-      <th className="sticky left-0 z-10 bg-[#16263d] px-2 py-1.5 text-left text-[#e6efff] font-semibold whitespace-nowrap">Metric</th>
+      <th className="sticky left-0 z-10 bg-[#16263d] px-2 py-1.5 text-left text-[#e6efff] font-semibold whitespace-nowrap">{firstColLabel}</th>
       <th className="px-2 py-1.5 text-left text-[#e6efff] font-semibold whitespace-nowrap">Unit</th>
       {HE_COLS.map((he) => (
         <th key={he} className="px-2 py-1.5 text-right text-[#e6efff] font-semibold whitespace-nowrap">HE{he}</th>
@@ -532,6 +544,124 @@ function DaySection({ dateStr, dayIdx, vintages }: DaySectionProps) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Revision multi-select dropdown                                     */
+/* ------------------------------------------------------------------ */
+
+interface RevisionMultiSelectProps {
+  availableExecs: string[];
+  selectedExecs: Set<string>;
+  onToggle: (exec: string) => void;
+  onSetLatestN: (n: number) => void;
+  onClear: () => void;
+  execRankMap: Map<string, number>;
+  vintageByExec: Map<string, Vintage>;
+  colorForExec: Map<string, string>;
+}
+
+function RevisionMultiSelect({
+  availableExecs,
+  selectedExecs,
+  onToggle,
+  onSetLatestN,
+  onClear,
+  execRankMap,
+  vintageByExec,
+  colorForExec,
+}: RevisionMultiSelectProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const triggerLabel =
+    selectedExecs.size === 0
+      ? "Select revisions…"
+      : `${selectedExecs.size} of ${availableExecs.length} revision${availableExecs.length === 1 ? "" : "s"} selected`;
+
+  return (
+    <div ref={ref} className="relative w-full sm:max-w-xl">
+      <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-gray-500">
+        Forecast Execution Datetime
+      </label>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 hover:border-gray-500 focus:outline-none"
+      >
+        <span>{triggerLabel}</span>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className={`h-4 w-4 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute z-30 mt-1 w-full rounded-md border border-gray-700 bg-gray-900 shadow-xl">
+          <div className="flex items-center justify-between border-b border-gray-800 px-3 py-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+              {availableExecs.length} available
+            </span>
+            <div className="flex gap-3 text-[10px] font-semibold uppercase tracking-wide">
+              <button onClick={() => onSetLatestN(5)} className="text-gray-400 transition-colors hover:text-gray-200">Latest 5</button>
+              <button onClick={() => onSetLatestN(availableExecs.length)} className="text-gray-400 transition-colors hover:text-gray-200">All</button>
+              <button onClick={onClear} className="text-gray-400 transition-colors hover:text-gray-200">Clear</button>
+            </div>
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            {availableExecs.map((exec) => {
+              const isSelected = selectedExecs.has(exec);
+              const rank = execRankMap.get(exec);
+              const vDef = vintageByExec.get(exec);
+              const dotColor = isSelected ? (colorForExec.get(exec) ?? vDef?.color ?? "#60a5fa") : "#374151";
+              return (
+                <button
+                  key={exec}
+                  onClick={() => onToggle(exec)}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] font-mono transition-colors ${
+                    isSelected ? "bg-gray-800/80 text-gray-100" : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    readOnly
+                    className="h-3.5 w-3.5 cursor-pointer accent-amber-500"
+                  />
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: dotColor }}
+                  />
+                  <span className="flex-1">{fmtExecLocal(exec)}</span>
+                  {rank != null && (
+                    <span className="rounded border border-amber-500/30 bg-amber-600/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
+                      Rank {rank}
+                    </span>
+                  )}
+                  {vDef && (
+                    <span className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: vDef.color }}>
+                      {vDef.label}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main component                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -540,6 +670,9 @@ export default function PjmLoadForecast() {
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => cacheGet<ViewMode>("viewMode") ?? "overview"
   );
+
+  // ── Region state (shared across views) ──
+  const [region, setRegion] = useState(() => cacheGet<string>("region") ?? "RTO");
 
   // ── Overview state ──
   const [startDate, setStartDate] = useState(() => cacheGet<string>("start") ?? todayStr());
@@ -557,6 +690,7 @@ export default function PjmLoadForecast() {
 
   // Persist
   useEffect(() => { cacheSet("viewMode", viewMode); }, [viewMode]);
+  useEffect(() => { cacheSet("region", region); }, [region]);
   useEffect(() => { cacheSet("start", startDate); }, [startDate]);
   useEffect(() => { cacheSet("end", endDate); }, [endDate]);
   useEffect(() => { cacheSet("revDate", revDate); }, [revDate]);
@@ -574,7 +708,7 @@ export default function PjmLoadForecast() {
     setError(null);
     const params = new URLSearchParams({
       start: startDate, end: endDate,
-      region: "RTO", vintages: "true",
+      region, vintages: "true",
       limit: "10000", offset: "0",
       _cb: String(cacheBust),
     });
@@ -583,7 +717,7 @@ export default function PjmLoadForecast() {
       .then((data) => setOverviewRows(data.rows ?? []))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [startDate, endDate, cacheBust]);
+  }, [startDate, endDate, region, cacheBust]);
 
   // ── Fetch: Revisions ──
   const fetchRevisions = useCallback(() => {
@@ -591,7 +725,7 @@ export default function PjmLoadForecast() {
     setError(null);
     const params = new URLSearchParams({
       start: revDate, end: revDate,
-      region: "RTO",
+      region,
       limit: "10000", offset: "0",
       _cb: String(cacheBust),
     });
@@ -607,7 +741,7 @@ export default function PjmLoadForecast() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [revDate, cacheBust]);
+  }, [revDate, region, cacheBust]);
 
   useEffect(() => {
     if (viewMode === "overview") fetchOverview();
@@ -662,6 +796,32 @@ export default function PjmLoadForecast() {
 
   const revisionVintages = useMemo(() => resolveVintages(revRows), [revRows]);
 
+  const execRankMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of revRows) {
+      if (!m.has(r.forecast_execution_datetime_local)) {
+        m.set(r.forecast_execution_datetime_local, r.forecast_rank);
+      }
+    }
+    return m;
+  }, [revRows]);
+
+  const vintageByExec = useMemo(() => {
+    const m = new Map<string, Vintage>();
+    for (const rv of revisionVintages) m.set(rv.execLocal, rv.vintage);
+    return m;
+  }, [revisionVintages]);
+
+  const colorForExec = useMemo(() => {
+    const m = new Map<string, string>();
+    const sorted = [...selectedExecs].sort();
+    sorted.forEach((exec, i) => {
+      const vDef = vintageByExec.get(exec);
+      m.set(exec, vDef?.color ?? REVISION_COLORS[i % REVISION_COLORS.length]);
+    });
+    return m;
+  }, [selectedExecs, vintageByExec]);
+
   const revisionHeMaps = useMemo(() => {
     const maps = new Map<string, Map<number, number>>();
     for (const exec of selectedExecs) {
@@ -700,13 +860,13 @@ export default function PjmLoadForecast() {
   return (
     <div className="space-y-6">
       {/* ── Toolbar ── */}
-      <div className="flex flex-wrap items-end gap-4">
-        <div className="flex flex-col gap-1">
+      <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end sm:gap-4">
+        <div className="col-span-2 flex flex-col gap-1">
           <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">View</label>
           <div className="flex gap-1">
             {(["overview", "revisions"] as const).map((mode) => (
               <button key={mode} onClick={() => setViewMode(mode)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors sm:flex-none sm:py-1.5 ${
                   viewMode === mode
                     ? "bg-amber-600 text-white"
                     : "border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
@@ -723,26 +883,37 @@ export default function PjmLoadForecast() {
               <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Start Date</label>
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
                 min={filterOpts?.dateRange.min} max={filterOpts?.dateRange.max}
-                className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:border-gray-500 focus:outline-none" />
+                className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-gray-500 focus:outline-none sm:w-auto sm:py-1.5" />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">End Date</label>
               <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
                 min={filterOpts?.dateRange.min} max={filterOpts?.dateRange.max}
-                className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:border-gray-500 focus:outline-none" />
+                className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-gray-500 focus:outline-none sm:w-auto sm:py-1.5" />
             </div>
           </>
         )}
         {viewMode === "revisions" && (
-          <div className="flex flex-col gap-1">
+          <div className="col-span-2 flex flex-col gap-1">
             <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Forecast Date</label>
             <input type="date" value={revDate} onChange={(e) => setRevDate(e.target.value)}
               min={filterOpts?.dateRange.min} max={filterOpts?.dateRange.max}
-              className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 focus:border-gray-500 focus:outline-none" />
+              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-gray-500 focus:outline-none sm:w-auto sm:py-1.5" />
           </div>
         )}
 
-        <span className="rounded-md bg-blue-900/40 border border-blue-800/50 px-3 py-1.5 text-sm font-medium text-blue-300">RTO</span>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Region</label>
+          <select
+            value={region}
+            onChange={(e) => setRegion(e.target.value)}
+            className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-gray-500 focus:outline-none sm:w-auto sm:py-1.5"
+          >
+            {sortRegions(filterOpts?.regions ?? [region]).map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        </div>
 
         <button
           onClick={() => {
@@ -751,13 +922,13 @@ export default function PjmLoadForecast() {
               .catch(() => setCacheBust((n) => n + 1));
           }}
           disabled={loading}
-          className="ml-auto rounded-md border border-gray-700 px-3 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40">
+          className="rounded-md border border-gray-700 px-3 py-2 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40 sm:ml-auto sm:py-1.5">
           Refresh
         </button>
       </div>
 
       {/* ── Status ── */}
-      {loading && <p className="text-sm text-gray-500">Loading RTO load forecast data...</p>}
+      {loading && <p className="text-sm text-gray-500">Loading {region} load forecast data...</p>}
       {error && <p className="text-sm text-red-400">Error: {error}</p>}
       {!loading && !error && (viewMode === "overview" ? overviewRows : revRows).length === 0 && (
         <p className="text-sm text-gray-500">No forecast data found for the selected date range.</p>
@@ -770,7 +941,7 @@ export default function PjmLoadForecast() {
         <>
           {/* Overview chart with vintage lines */}
           {overviewChartData.length > 0 && (
-            <ChartCard title="Load Forecast — RTO" height={360}>
+            <ChartCard title={`Load Forecast — ${region}`} height={360}>
               {({ chartHeight, hiddenSeries, toggleSeries }) => (
                 <>
                   <ResponsiveContainer width="100%" height={chartHeight}>
@@ -831,72 +1002,18 @@ export default function PjmLoadForecast() {
       {/* ============================================================== */}
       {viewMode === "revisions" && !loading && (
         <>
-          {/* Vintage quick-select pills */}
-          {revisionVintages.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {revisionVintages.map((rv) => {
-                const isSelected = selectedExecs.has(rv.execLocal);
-                return (
-                  <button key={rv.vintage.key} onClick={() => toggleExec(rv.execLocal)}
-                    className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors border ${
-                      isSelected
-                        ? "bg-gray-800 text-gray-200 border-gray-600"
-                        : "text-gray-500 border-gray-800 hover:bg-gray-800/50 hover:text-gray-300"
-                    }`}>
-                    <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: rv.vintage.color }} />
-                    {rv.vintage.label}
-                    <span className="text-[10px] font-normal text-gray-500">
-                      {fmtExecLocal(rv.execLocal)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Full revision list */}
+          {/* Multi-select revision picker */}
           {availableExecs.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
-                  All Revisions &mdash; {availableExecs.length} available
-                </h3>
-                <div className="flex gap-2">
-                  <button onClick={() => {
-                    const latest5 = availableExecs.slice(0, 5);
-                    setSelectedExecs(new Set(latest5));
-                  }} className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-300 transition-colors">
-                    Latest 5
-                  </button>
-                  <button onClick={() => setSelectedExecs(new Set())}
-                    className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-300 transition-colors">
-                    Clear
-                  </button>
-                </div>
-              </div>
-              <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-800 bg-gray-900/40 p-2 space-y-0.5">
-                {availableExecs.map((exec, i) => {
-                  const isSelected = selectedExecs.has(exec);
-                  const colorIdx = [...selectedExecs].sort().indexOf(exec);
-                  const color = colorIdx >= 0 ? REVISION_COLORS[colorIdx % REVISION_COLORS.length] : undefined;
-                  const rv = revisionVintages.find((r) => r.execLocal === exec);
-                  const vDef = rv?.vintage ?? null;
-                  return (
-                    <button key={exec} onClick={() => toggleExec(exec)}
-                      className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-mono transition-colors ${
-                        isSelected ? "bg-gray-800/80 text-gray-200" : "text-gray-500 hover:bg-gray-800/40 hover:text-gray-300"
-                      }`}>
-                      <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: isSelected ? (vDef?.color ?? color) : "#374151" }} />
-                      <span>{fmtExecLocal(exec)}</span>
-                      {vDef && <span className="ml-auto text-[9px] font-semibold uppercase" style={{ color: vDef.color }}>{vDef.label}</span>}
-                      {!vDef && i === 0 && <span className="ml-auto text-[9px] font-semibold uppercase text-amber-500/70">Latest</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <RevisionMultiSelect
+              availableExecs={availableExecs}
+              selectedExecs={selectedExecs}
+              onToggle={toggleExec}
+              onSetLatestN={(n) => setSelectedExecs(new Set(availableExecs.slice(0, n)))}
+              onClear={() => setSelectedExecs(new Set())}
+              execRankMap={execRankMap}
+              vintageByExec={vintageByExec}
+              colorForExec={colorForExec}
+            />
           )}
 
           {/* Revisions chart */}
@@ -916,10 +1033,10 @@ export default function PjmLoadForecast() {
                         <Tooltip contentStyle={{ backgroundColor: "#111827", border: "1px solid #374151", borderRadius: 8, fontSize: 12 }}
                           labelStyle={{ color: "#9ca3af" }}
                           formatter={(value: number, name: string) => [`${value.toLocaleString()} MW`, fmtExecLocal(name)]} />
-                        {sortedExecs.map((exec, i) => (
+                        {sortedExecs.map((exec) => (
                           !hiddenSeries.has(exec) ? (
                             <Line key={exec} type="monotone" dataKey={exec} name={exec}
-                              stroke={REVISION_COLORS[i % REVISION_COLORS.length]}
+                              stroke={colorForExec.get(exec) ?? "#60a5fa"}
                               strokeWidth={2} dot={false} activeDot={{ r: 4 }}
                               isAnimationActive={false} />
                           ) : null
@@ -927,10 +1044,10 @@ export default function PjmLoadForecast() {
                       </LineChart>
                     </ResponsiveContainer>
                     <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px]">
-                      {sortedExecs.map((exec, i) => (
+                      {sortedExecs.map((exec) => (
                         <LegendItem key={exec} seriesKey={exec}
                           label={fmtExecLocal(exec)}
-                          color={REVISION_COLORS[i % REVISION_COLORS.length]}
+                          color={colorForExec.get(exec) ?? "#60a5fa"}
                           hiddenSeries={hiddenSeries} toggleSeries={toggleChartSeries} />
                       ))}
                     </div>
@@ -940,44 +1057,61 @@ export default function PjmLoadForecast() {
             </ChartCard>
           )}
 
-          {/* Revision tables */}
-          {[...selectedExecs].sort((a, b) => b.localeCompare(a)).map((exec, i) => {
-            const heMap = revisionHeMaps.get(exec);
-            if (!heMap) return null;
-            const rvMatch = revisionVintages.find((r) => r.execLocal === exec);
-            const vDef = rvMatch?.vintage ?? null;
-            return (
-              <div key={exec} className="rounded-lg border border-[#20324c] bg-[rgba(11,18,32,0.55)] overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-2.5 bg-[#111d31]">
-                  <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: vDef?.color ?? REVISION_COLORS[i % REVISION_COLORS.length] }} />
-                  <span className="text-sm font-semibold text-[#dbe7ff]">{fmtExecLocal(exec)}</span>
-                  {vDef && <span className="text-[9px] font-semibold uppercase" style={{ color: vDef.color }}>{vDef.label}</span>}
-                </div>
-                <div className="p-3 overflow-x-auto">
-                  <div className="rounded-lg border border-[#2a3f60]">
-                    <table className="w-full border-collapse text-[11px] font-mono">
-                      <thead><HeTableHeader /></thead>
-                      <tbody>
-                        <tr className="border-t border-[#1f334f] hover:bg-[#1c2f4a]">
-                          <td className="sticky left-0 z-10 bg-[#0f1a2b] px-2 py-1 text-[#cfe0ff] font-bold whitespace-nowrap">Load</td>
-                          <td className="px-2 py-1 text-[#8aa5ca] whitespace-nowrap">MW</td>
-                          {HE_COLS.map((he) => (
-                            <td key={he} className="px-2 py-1 text-right text-[#dbe7ff] whitespace-nowrap">{fmtMw(heMap.get(he))}</td>
-                          ))}
-                          {(() => { const a = computeAverages(heMap); return (<>
+          {/* Aggregated revisions table */}
+          {selectedExecs.size > 0 && (
+            <div className="rounded-lg border border-[#20324c] bg-[rgba(11,18,32,0.55)] overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-[#111d31]">
+                <span className="text-sm font-semibold text-[#dbe7ff]">
+                  Selected Revisions &mdash; {selectedExecs.size}
+                </span>
+              </div>
+              <div className="p-3 overflow-x-auto">
+                <div className="rounded-lg border border-[#2a3f60]">
+                  <table className="w-full border-collapse text-[11px] font-mono">
+                    <thead><HeTableHeader firstColLabel="Revision" /></thead>
+                    <tbody>
+                      {[...selectedExecs].sort((a, b) => b.localeCompare(a)).map((exec) => {
+                        const heMap = revisionHeMaps.get(exec);
+                        if (!heMap) return null;
+                        const rank = execRankMap.get(exec);
+                        const vDef = vintageByExec.get(exec);
+                        const color = colorForExec.get(exec) ?? "#60a5fa";
+                        const a = computeAverages(heMap);
+                        return (
+                          <tr key={exec} className="border-t border-[#1f334f] hover:bg-[#1c2f4a]">
+                            <td className="sticky left-0 z-10 bg-[#0f1a2b] px-2 py-1 whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: color }} />
+                                <span className="text-[#dbe7ff] font-semibold">{fmtExecLocal(exec)}</span>
+                                {rank != null && (
+                                  <span className="rounded border border-amber-500/30 bg-amber-600/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
+                                    Rank {rank}
+                                  </span>
+                                )}
+                                {vDef && (
+                                  <span className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: vDef.color }}>
+                                    {vDef.label}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-2 py-1 text-[#8aa5ca] whitespace-nowrap">MW</td>
+                            {HE_COLS.map((he) => (
+                              <td key={he} className="px-2 py-1 text-right text-[#dbe7ff] whitespace-nowrap">{fmtMw(heMap.get(he))}</td>
+                            ))}
                             <td className="px-2 py-1 text-right text-[#dbe7ff] font-semibold whitespace-nowrap">{fmtMw(a.onPeak)}</td>
                             <td className="px-2 py-1 text-right text-[#dbe7ff] font-semibold whitespace-nowrap">{fmtMw(a.offPeak)}</td>
                             <td className="px-2 py-1 text-right text-[#dbe7ff] font-semibold whitespace-nowrap">{fmtMw(a.flat)}</td>
-                          </>); })()}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          )}
         </>
       )}
     </div>

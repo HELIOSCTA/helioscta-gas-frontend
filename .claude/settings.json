@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "find .claude/standards -name \"*.md\" -type f 2>/dev/null | sort | sed \"s|^|Relevant standard: |\" | python -c \"import sys,json; ctx=sys.stdin.read().rstrip(); print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':ctx}}))\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

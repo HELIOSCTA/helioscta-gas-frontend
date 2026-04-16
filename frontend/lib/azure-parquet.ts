@@ -14,17 +14,32 @@ interface RowCacheEntry {
   fetchedAt: number;
 }
 
-declare global {
-  var _parquetRowCache: Map<string, RowCacheEntry> | undefined;
+interface BlobMetaEntry {
+  lastModifiedUtc: string | null;
+  contentLengthBytes: number | null;
+  etag: string | null;
+  fetchedAt: number;
 }
 
-const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+declare global {
+  var _parquetRowCache: Map<string, RowCacheEntry> | undefined;
+  var _parquetBlobMetaCache: Map<string, BlobMetaEntry> | undefined;
+}
+
+export const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes — row cache
+const BLOB_META_TTL_MS = 60 * 1000; // 1 minute — Azure getProperties cache
 
 const rowCache: Map<string, RowCacheEntry> =
   process.env.NODE_ENV === "production"
     ? new Map()
     : (globalThis._parquetRowCache ??
       (globalThis._parquetRowCache = new Map()));
+
+const blobMetaCache: Map<string, BlobMetaEntry> =
+  process.env.NODE_ENV === "production"
+    ? new Map()
+    : (globalThis._parquetBlobMetaCache ??
+      (globalThis._parquetBlobMetaCache = new Map()));
 
 // In-flight dedup: if multiple requests hit a cold cache simultaneously,
 // only one Parquet read runs — the rest await the same promise.
@@ -144,7 +159,64 @@ export async function readParquet<T>(
 export function invalidateCache(container?: string, blobPath?: string): void {
   if (container && blobPath) {
     rowCache.delete(`${container}/${blobPath}`);
+    blobMetaCache.delete(`${container}/${blobPath}`);
   } else {
     rowCache.clear();
+    blobMetaCache.clear();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Parquet dataset metadata (Azure blob + local cache state)
+// ---------------------------------------------------------------------------
+
+export interface ParquetMeta {
+  container: string;
+  blobPath: string;
+  /** When Azure says the blob was last modified (ISO UTC). */
+  lastModifiedUtc: string | null;
+  contentLengthBytes: number | null;
+  etag: string | null;
+  /** When our server-side row cache last downloaded + parsed this blob (ISO UTC, null if not cached). */
+  downloadedAtUtc: string | null;
+  /** When our server-side row cache expires (ISO UTC, null if not cached). */
+  cacheExpiresAtUtc: string | null;
+  cacheTtlMs: number;
+}
+
+export async function getParquetMeta(
+  container: string,
+  blobPath: string
+): Promise<ParquetMeta> {
+  const key = `${container}/${blobPath}`;
+
+  let entry = blobMetaCache.get(key);
+  if (!entry || Date.now() - entry.fetchedAt > BLOB_META_TTL_MS) {
+    const { blobServiceClient } = getCredentials();
+    const blobClient = blobServiceClient
+      .getContainerClient(container)
+      .getBlobClient(blobPath);
+    const props = await blobClient.getProperties();
+    entry = {
+      lastModifiedUtc: props.lastModified?.toISOString() ?? null,
+      contentLengthBytes: props.contentLength ?? null,
+      etag: props.etag ?? null,
+      fetchedAt: Date.now(),
+    };
+    blobMetaCache.set(key, entry);
+  }
+
+  const cached = rowCache.get(key);
+  return {
+    container,
+    blobPath,
+    lastModifiedUtc: entry.lastModifiedUtc,
+    contentLengthBytes: entry.contentLengthBytes,
+    etag: entry.etag,
+    downloadedAtUtc: cached ? new Date(cached.fetchedAt).toISOString() : null,
+    cacheExpiresAtUtc: cached
+      ? new Date(cached.fetchedAt + CACHE_TTL_MS).toISOString()
+      : null,
+    cacheTtlMs: CACHE_TTL_MS,
+  };
 }

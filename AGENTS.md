@@ -31,5 +31,10 @@
 - Keep credentials in local env files or CI/CD secrets; use placeholders in docs/scripts.
 
 ## Agent References
-- Contributor preference notes: [`.claude/standards/todo-preferences.md`](./.claude/standards/todo-preferences.md).
-- Frontend theme/style preferences: [`.claude/standards/frontend-styling.md`](./.claude/standards/frontend-styling.md).
+- Frontend standards index: [`.claude/standards/frontend-styling/README.md`](./.claude/standards/frontend-styling/README.md).
+  - Theme & typography: [`theme.md`](./.claude/standards/frontend-styling/theme.md)
+  - Cash / Hub view defaults: [`cash-hub-views.md`](./.claude/standards/frontend-styling/cash-hub-views.md)
+  - UX constraints: [`ux-constraints.md`](./.claude/standards/frontend-styling/ux-constraints.md)
+  - Plotting (Recharts): [`plotting.md`](./.claude/standards/frontend-styling/plotting.md)
+  - Parquet-backed pages: [`parquet-pages.md`](./.claude/standards/frontend-styling/parquet-pages.md)
+  - Mobile experience: [`mobile-experience.md`](./.claude/standards/frontend-styling/mobile-experience.md)
