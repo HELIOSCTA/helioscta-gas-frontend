@@ -12,7 +12,7 @@ export interface AuthResult {
  */
 export async function requireAuth(): Promise<AuthResult | NextResponse> {
   // Local dev bypass — when Entra ID is not configured, skip auth
-  if (!process.env.AUTH_MICROSOFT_ENTRA_ID_ID) {
+  if (process.env.BYPASS_AUTH === "true" || !process.env.AUTH_MICROSOFT_ENTRA_ID_ID) {
     return { userEmail: "dev@localhost" };
   }
 

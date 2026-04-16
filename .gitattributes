@@ -1,0 +1,2 @@
+# Force LF line endings for env files to prevent \r\n corruption on Vercel
+.env* text eol=lf
