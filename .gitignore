@@ -25,6 +25,7 @@ __pycache__/
 # misc files
 .archive/*
 .test/*
+TODO/
 *.pdf
 *.csv
 *.xlsx
